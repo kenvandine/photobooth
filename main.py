@@ -1,9 +1,11 @@
 import kivy
-kivy.require('2.3.1') # replace with your Kivy version if necessary
+kivy.require('2.3.1')
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
+from kivy.uix.widget import Widget
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.graphics import Color, Ellipse
 from kivy.uix.image import Image
 from kivy.uix.spinner import Spinner
 from kivy.clock import Clock
@@ -12,66 +14,195 @@ import cv2
 import os
 from datetime import datetime
 import logging
+import subprocess
+import re
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
+
+# A list of common resolutions to test
+STANDARD_RESOLUTIONS = [
+    (640, 480),
+    (800, 600),
+    (1024, 768),
+    (1280, 720),
+    (1920, 1080),
+    (3840, 2160)
+]
+
+class RoundButton(ButtonBehavior, Widget):
+    def __init__(self, **kwargs):
+        super(RoundButton, self).__init__(**kwargs)
+        self.background_normal = '' # Remove default button background
+        self.background_down = ''
+        with self.canvas.before:
+            # Outer ring (a bit darker)
+            Color(0.4, 0.4, 0.4, 1)
+            self.ring = Ellipse()
+            # Inner circle (the main button body)
+            Color(0.7, 0.7, 0.7, 1)
+            self.circle = Ellipse()
+
+        self.bind(pos=self.update_graphics, size=self.update_graphics)
+        self.update_graphics()
+
+    def update_graphics(self, *args):
+        self.ring.pos = self.pos
+        self.ring.size = self.size
+        # Center the inner circle, make it 90% of the size
+        inner_size = self.width * 0.8
+        inner_pos_x = self.x + (self.width - inner_size) / 2
+        inner_pos_y = self.y + (self.height - inner_size) / 2
+        self.circle.pos = (inner_pos_x, inner_pos_y)
+        self.circle.size = (inner_size, inner_size)
+
+    def on_state(self, widget, value):
+        # Change color on press
+        if value == 'down':
+            with self.canvas.after:
+                Color(0, 0, 0, 0.2)
+                self.feedback = Ellipse(pos=self.pos, size=self.size)
+        else: # value == 'normal'
+            if hasattr(self, 'feedback'):
+                self.canvas.after.remove(self.feedback)
 
 class CameraApp(App):
 
     def get_available_cameras(self):
-        """Detect and return a list of available camera indices."""
-        available_cameras = []
-        # Check for cameras from index 0 to 9
-        for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                available_cameras.append(str(i))
-                cap.release()
-        logging.info(f"Available cameras: {available_cameras}")
-        return available_cameras
+        """Detects available cameras and their descriptive names."""
+        cameras = {}
+        try:
+            # Use v4l2-ctl for more descriptive names on Linux
+            output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
+            current_camera_name = ""
+            for line in output.splitlines():
+                if not line.startswith('\t'):
+                    current_camera_name = line.strip().split(' (')[0]
+                elif '/dev/video' in line:
+                    match = re.search(r'/dev/video(\d+)', line)
+                    if match:
+                        index = int(match.group(1))
+                        cap = cv2.VideoCapture(index)
+                        if cap.isOpened():
+                            cameras[current_camera_name] = index
+                            cap.release()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
+            for i in range(10):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    cameras[f"Camera {i}"] = i
+                    cap.release()
+
+        logging.info(f"Available cameras: {cameras}")
+        return cameras
+
+    def get_supported_resolutions(self, camera_index):
+        """
+        Tests a camera for a list of standard resolutions and returns the supported ones.
+        """
+        supported_resolutions = []
+        cap = cv2.VideoCapture(camera_index)
+        if not cap.isOpened():
+            logging.error(f"Could not open camera index {camera_index} to get resolutions.")
+            return []
+
+        for w, h in STANDARD_RESOLUTIONS:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if actual_w == w and actual_h == h:
+                supported_resolutions.append(f"{w}x{h}")
+
+        cap.release()
+        logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
+        return supported_resolutions
 
     def build(self):
-        self.layout = BoxLayout(orientation='vertical')
+        self.layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
 
         self.camera_view = Image()
         self.layout.add_widget(self.camera_view)
 
-        # Camera selection dropdown
+        controls_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+
         self.available_cameras = self.get_available_cameras()
         if not self.available_cameras:
             logging.error("No cameras found!")
-            # Handle no camera case - maybe show a placeholder or a message
-            # For now, the app will probably fail later on, which is acceptable for this task
             return self.layout
 
+        camera_names = list(self.available_cameras.keys())
         self.camera_selector = Spinner(
-            text=f"Camera {self.available_cameras[0]}",
-            values=[f"Camera {i}" for i in self.available_cameras],
+            text=camera_names[0],
+            values=camera_names,
+        )
+        self.camera_selector.bind(text=self.on_camera_select)
+        controls_layout.add_widget(self.camera_selector)
+
+        self.resolution_selector = Spinner(
+            text="Resolution",
+            values=[],
             size_hint_y=None,
             height=50
         )
-        self.camera_selector.bind(text=self.on_camera_select)
-        self.layout.add_widget(self.camera_selector)
+        self.resolution_selector.bind(text=self.on_resolution_select)
+        controls_layout.add_widget(self.resolution_selector)
 
-        self.capture_button = Button(text="Take Photo", size_hint_y=None, height=100)
+        self.layout.add_widget(controls_layout)
+
+        # Layout to center the round capture button
+        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
+        button_layout.add_widget(Widget()) # Left spacer
+        self.capture_button = RoundButton(size_hint=(None, None), size=(80, 80))
         self.capture_button.bind(on_press=self.capture_photo)
-        self.layout.add_widget(self.capture_button)
+        button_layout.add_widget(self.capture_button)
+        button_layout.add_widget(Widget()) # Right spacer
+        self.layout.add_widget(button_layout)
 
-        # Initialize capture with the first available camera
-        self.capture = cv2.VideoCapture(int(self.available_cameras[0]))
-        logging.info(f"Starting with camera index: {self.available_cameras[0]}")
+        # Initial setup for the first camera
+        first_camera_name = camera_names[0]
+        self.update_camera(first_camera_name)
 
         Clock.schedule_interval(self.update, 1.0 / 30.0)
 
         return self.layout
 
+    def update_camera(self, camera_name):
+        """Central method to initialize or switch camera and its resolution."""
+        selected_index = self.available_cameras[camera_name]
+        logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
+
+        if hasattr(self, 'capture') and self.capture.isOpened():
+            self.capture.release()
+
+        resolutions = self.get_supported_resolutions(selected_index)
+        self.resolution_selector.values = resolutions
+        if resolutions:
+            self.resolution_selector.text = resolutions[-1] # Default to highest
+            w, h = map(int, resolutions[-1].split('x'))
+            self.capture = cv2.VideoCapture(selected_index)
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            logging.info(f"Set camera {selected_index} to {w}x{h}")
+        else:
+            logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
+            self.capture = cv2.VideoCapture(selected_index)
+            self.resolution_selector.text = 'Default'
+
+
     def on_camera_select(self, spinner, text):
         """Callback for when a new camera is selected."""
-        selected_index = text.split(" ")[-1]
-        logging.info(f"Switching to camera index: {selected_index}")
-        if self.capture:
-            self.capture.release()
-        self.capture = cv2.VideoCapture(int(selected_index))
+        self.update_camera(text)
+
+    def on_resolution_select(self, spinner, text):
+        """Callback for when a new resolution is selected."""
+        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
+            return
+
+        w, h = map(int, text.split('x'))
+        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        logging.info(f"Resolution changed to {w}x{h}")
 
 
     def update(self, dt):
@@ -80,13 +211,11 @@ class CameraApp(App):
 
         ret, frame = self.capture.read()
         if ret:
-            # The frame is typically in BGR format, Kivy texture needs RGB
-            # Also, flipping is often necessary
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             buf1 = cv2.flip(frame_rgb, 0)
             buf = buf1.tobytes()
             image_texture = Texture.create(
-                size=(frame.shape[1], frame.shape[0]), colorfmt='rgb') # Changed to rgb
+                size=(frame.shape[1], frame.shape[0]), colorfmt='rgb')
             image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
             self.camera_view.texture = image_texture
 
