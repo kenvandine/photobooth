@@ -2,11 +2,14 @@ import kivy
 kivy.require('2.3.1')
 
 from kivy.app import App
+from kivy.animation import Animation
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 from kivy.uix.behaviors import ButtonBehavior
-from kivy.graphics import Color, Ellipse
+from kivy.graphics import Color, Ellipse, Rectangle
 from kivy.uix.image import Image
+from kivy.uix.label import Label
 from kivy.uix.spinner import Spinner
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
@@ -48,7 +51,7 @@ class RoundButton(ButtonBehavior, Widget):
     def update_graphics(self, *args):
         self.ring.pos = self.pos
         self.ring.size = self.size
-        # Center the inner circle, make it 90% of the size
+        # Center the inner circle, make it 80% of the size
         inner_size = self.width * 0.8
         inner_pos_x = self.x + (self.width - inner_size) / 2
         inner_pos_y = self.y + (self.height - inner_size) / 2
@@ -71,7 +74,6 @@ class CameraApp(App):
         """Detects available cameras and their descriptive names."""
         cameras = {}
         try:
-            # Use v4l2-ctl for more descriptive names on Linux
             output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
             current_camera_name = ""
             for line in output.splitlines():
@@ -119,17 +121,44 @@ class CameraApp(App):
         return supported_resolutions
 
     def build(self):
-        self.layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        # The root is a FloatLayout to allow widget stacking
+        root = FloatLayout()
+
+        # The main layout for the camera view and controls
+        main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
+
+        # --- BANNER ---
+        # To use a text banner:
+        banner = Label(
+            text="Happy 50th Birthday Laurie",
+            font_size='32sp',
+            size_hint_y=None,
+            height=80
+        )
+        main_layout.add_widget(banner)
+
+        # To use an image banner instead, comment out the Label code block above
+        # and uncomment the Image code block below.
+        #
+        # banner = Image(
+        #     source='banner.png', # Make sure banner.png is in the same directory
+        #     size_hint_y=None,
+        #     height=100,
+        #     allow_stretch=True,
+        #     keep_ratio=False
+        # )
+        # main_layout.add_widget(banner)
+        # --- END BANNER ---
 
         self.camera_view = Image()
-        self.layout.add_widget(self.camera_view)
+        main_layout.add_widget(self.camera_view)
 
         controls_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
         self.available_cameras = self.get_available_cameras()
         if not self.available_cameras:
             logging.error("No cameras found!")
-            return self.layout
+            return root
 
         camera_names = list(self.available_cameras.keys())
         self.camera_selector = Spinner(
@@ -148,7 +177,7 @@ class CameraApp(App):
         self.resolution_selector.bind(text=self.on_resolution_select)
         controls_layout.add_widget(self.resolution_selector)
 
-        self.layout.add_widget(controls_layout)
+        main_layout.add_widget(controls_layout)
 
         # Layout to center the round capture button
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
@@ -157,7 +186,18 @@ class CameraApp(App):
         self.capture_button.bind(on_press=self.capture_photo)
         button_layout.add_widget(self.capture_button)
         button_layout.add_widget(Widget()) # Right spacer
-        self.layout.add_widget(button_layout)
+        main_layout.add_widget(button_layout)
+
+        # Add the main layout to the root
+        root.add_widget(main_layout)
+
+        # Create the flash widget, initially invisible
+        self.flash = Widget(opacity=0)
+        with self.flash.canvas:
+            Color(1, 1, 1)
+            self.flash_rect = Rectangle(size=self.flash.size, pos=self.flash.pos)
+        self.flash.bind(size=self._update_flash_rect, pos=self._update_flash_rect)
+        root.add_widget(self.flash)
 
         # Initial setup for the first camera
         first_camera_name = camera_names[0]
@@ -165,7 +205,11 @@ class CameraApp(App):
 
         Clock.schedule_interval(self.update, 1.0 / 30.0)
 
-        return self.layout
+        return root
+
+    def _update_flash_rect(self, instance, value):
+        self.flash_rect.pos = instance.pos
+        self.flash_rect.size = instance.size
 
     def update_camera(self, camera_name):
         """Central method to initialize or switch camera and its resolution."""
@@ -219,6 +263,10 @@ class CameraApp(App):
             image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
             self.camera_view.texture = image_texture
 
+    def do_flash(self):
+        self.flash.opacity = 1
+        Animation(opacity=0, duration=0.2).start(self.flash)
+
     def capture_photo(self, *args):
         if not hasattr(self, 'capture') or not self.capture.isOpened():
             logging.error("No camera is active to take a photo.")
@@ -233,6 +281,7 @@ class CameraApp(App):
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
             cv2.imwrite(filename, frame)
             logging.info(f"Photo saved as {filename}")
+            self.do_flash()
 
     def on_stop(self):
         if hasattr(self, 'capture') and self.capture:
