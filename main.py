@@ -7,9 +7,12 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 from kivy.uix.behaviors import ButtonBehavior
-from kivy.graphics import Color, Ellipse, Rectangle
+from kivy.graphics import Color, Ellipse, Rectangle, StencilPush, StencilPop
 from kivy.uix.image import Image
 from kivy.uix.spinner import Spinner
+from kivy.uix.popup import Popup
+from kivy.uix.button import Button
+from kivy.uix.label import Label
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 import cv2
@@ -18,7 +21,7 @@ from datetime import datetime
 import logging
 import subprocess
 import re
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageDraw
 
 logging.basicConfig(level=logging.INFO)
 
@@ -48,6 +51,7 @@ def create_default_banner_if_needed():
         # Create a dark grey image using Pillow
         img = PILImage.new('RGB', (width, height), color = (50, 50, 50))
         img.save(banner_path)
+
 
 class RoundButton(ButtonBehavior, Widget):
     def __init__(self, **kwargs):
@@ -79,6 +83,23 @@ class RoundButton(ButtonBehavior, Widget):
         else:
             if hasattr(self, 'feedback'):
                 self.canvas.after.remove(self.feedback)
+
+
+class RoundImageButton(ButtonBehavior, Image):
+    def __init__(self, **kwargs):
+        super(RoundImageButton, self).__init__(**kwargs)
+        with self.canvas.before:
+            self.stencil = StencilPush()
+            self.stencil_shape = Ellipse()
+        with self.canvas.after:
+            self.stencil_pop = StencilPop()
+
+        self.bind(pos=self.update_stencil, size=self.update_stencil)
+
+    def update_stencil(self, *args):
+        self.stencil_shape.pos = self.pos
+        self.stencil_shape.size = self.size
+
 
 class CameraApp(App):
 
@@ -145,22 +166,15 @@ class CameraApp(App):
         self.camera_view = Image()
         main_layout.add_widget(self.camera_view)
 
-        controls_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
-
         self.available_cameras = self.get_available_cameras()
         if not self.available_cameras:
             logging.error("No cameras found!")
             return root
 
         camera_names = list(self.available_cameras.keys())
-        self.camera_selector = Spinner(text=camera_names[0], values=camera_names)
-        self.camera_selector.bind(text=self.on_camera_select)
-        controls_layout.add_widget(self.camera_selector)
 
         self.resolution_selector = Spinner(text="Resolution", values=[], size_hint_y=None, height=50)
         self.resolution_selector.bind(text=self.on_resolution_select)
-        controls_layout.add_widget(self.resolution_selector)
-        main_layout.add_widget(controls_layout)
 
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
         button_layout.add_widget(Widget())
@@ -171,6 +185,15 @@ class CameraApp(App):
         main_layout.add_widget(button_layout)
 
         root.add_widget(main_layout)
+
+        self.camera_switch_button = RoundImageButton(
+            source='assets/system-settings.png',
+            size_hint=(None, None),
+            size=(32, 32),
+            pos_hint={'x': 0.05, 'y': 0.05}
+        )
+        self.camera_switch_button.bind(on_press=self.open_camera_selector)
+        root.add_widget(self.camera_switch_button)
 
         self.flash = Widget(opacity=0)
         with self.flash.canvas:
@@ -211,8 +234,41 @@ class CameraApp(App):
             self.capture = cv2.VideoCapture(selected_index)
             self.resolution_selector.text = 'Default'
 
-    def on_camera_select(self, spinner, text):
-        self.update_camera(text)
+    def on_camera_select(self, camera_name):
+        self.update_camera(camera_name)
+
+    def open_camera_selector(self, instance):
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        popup = Popup(title='Camera & Resolution', content=content, size_hint=(0.8, 0.9))
+
+        # Add camera selection
+        content.add_widget(Label(text='Cameras', size_hint_y=None, height=40))
+        for camera_name in self.available_cameras.keys():
+            btn = Button(text=camera_name, size_hint_y=None, height=50)
+            btn.bind(on_release=lambda x, name=camera_name: self.select_camera_and_close(name, popup))
+            content.add_widget(btn)
+
+        # Add resolution selection
+        content.add_widget(Label(text='Resolution', size_hint_y=None, height=40))
+        if self.resolution_selector.parent:
+            self.resolution_selector.parent.remove_widget(self.resolution_selector)
+        content.add_widget(self.resolution_selector)
+
+        def cleanup_on_dismiss(popup_instance):
+            if self.resolution_selector.parent:
+                self.resolution_selector.parent.remove_widget(self.resolution_selector)
+        popup.bind(on_dismiss=cleanup_on_dismiss)
+
+        # Add a close button to the popup for abandoning selection
+        close_button = Button(text='Close', size_hint_y=None, height=50)
+        close_button.bind(on_release=popup.dismiss)
+        content.add_widget(close_button)
+
+        popup.open()
+
+    def select_camera_and_close(self, camera_name, popup):
+        self.on_camera_select(camera_name)
+        popup.dismiss()
 
     def on_resolution_select(self, spinner, text):
         if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
