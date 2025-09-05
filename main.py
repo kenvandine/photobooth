@@ -74,152 +74,106 @@ def create_default_banner_if_needed():
         img.save(banner_path)
 
 
+def _get_random_point_in_border(width, height):
+    """
+    Gets a random (x, y) coordinate in the outer 20% of the image border.
+    """
+    border_w = width * 0.2
+    border_h = height * 0.2
+
+    # Decide which border to place the point in (top, bottom, left, right)
+    side = random.choice(['top', 'bottom', 'left', 'right'])
+
+    if side == 'top':
+        x = random.randint(0, width)
+        y = random.randint(0, int(border_h))
+    elif side == 'bottom':
+        x = random.randint(0, width)
+        y = random.randint(int(height - border_h), height)
+    elif side == 'left':
+        x = random.randint(0, int(border_w))
+        y = random.randint(0, height)
+    else:  # right
+        x = random.randint(int(width - border_w), width)
+        y = random.randint(0, height)
+    return x, y
+
+
 def create_birthday_frames_if_needed():
     """
     Checks if birthday frame images exist and creates them if they do not.
 
     The frames are simple images with birthday-themed decorations, saved as
-    PNG files in the `assets/frames/` directory.
+    PNG files in the `assets/frames/` directory. All frames only use the
+    outer 20% of the image area.
     """
     frames_dir = 'assets/frames'
     if not os.path.exists(frames_dir):
         os.makedirs(frames_dir)
 
     frame_paths = [os.path.join(frames_dir, f) for f in [
-        'frame1.png', 'frame2.png', 'frame3.png', 'frame4.png', 'frame5.png', 'frame6.png', 'frame7.png'
+        'frame_confetti.png', 'frame_balloons.png', 'frame_stars.png', 'frame_streamers.png'
     ]]
+    width, height = 800, 600
 
-    # Frame 1: Simple "Happy Birthday" text
+    # Frame 1: Confetti
     if not os.path.exists(frame_paths[0]):
-        logging.info(f"Creating birthday frame at {frame_paths[0]}")
-        width, height = 800, 600
+        logging.info(f"Creating confetti frame at {frame_paths[0]}")
         img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-
-        # Add a simple border
-        draw.rectangle([0, 0, width-1, height-1], outline="gold", width=10)
-
-        # Add text
-        try:
-            from PIL import ImageFont
-            # Try to load a default font
-            font = ImageFont.truetype("sans-serif.ttf", 40)
-        except IOError:
-            # If default font is not available, use a basic one
-            font = ImageFont.load_default()
-
-        draw.text((width/2, 50), "Happy Birthday!", fill="gold", font=font, anchor="mt")
+        colors = ["#FFD700", "#FF6347", "#00CED1", "#9370DB", "#32CD32"]
+        for _ in range(500):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(3, 8)
+            draw.ellipse([x, y, x + size, y + size], fill=random.choice(colors))
         img.save(frame_paths[0])
 
-    # Frame 2: Colorful confetti-like border
+    # Frame 2: Balloons
     if not os.path.exists(frame_paths[1]):
-        logging.info(f"Creating birthday frame at {frame_paths[1]}")
-        width, height = 800, 600
+        logging.info(f"Creating balloons frame at {frame_paths[1]}")
         img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-
-        # Draw colorful dots as a border
-        colors = ["red", "green", "blue", "yellow", "purple", "orange"]
-        dot_size = 5
-        for _ in range(400):  # More dots for a denser feel
-            # Top border
-            x = random.randint(0, width - dot_size)
-            y = random.randint(0, 30)
-            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
-            # Bottom border
-            x = random.randint(0, width - dot_size)
-            y = random.randint(height - 30 - dot_size, height - dot_size)
-            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
-            # Left border
-            x = random.randint(0, 30)
-            y = random.randint(0, height - dot_size)
-            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
-            # Right border
-            x = random.randint(width - 30 - dot_size, width - dot_size)
-            y = random.randint(0, height - dot_size)
-            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
-
+        colors = ["#FF69B4", "#1E90FF", "#FFA500", "#FF4500"]
+        for _ in range(25):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(20, 50)
+            # Balloon shape
+            draw.ellipse([x, y, x + size, y + size * 1.2], fill=random.choice(colors))
+            # String
+            draw.line([x + size / 2, y + size * 1.2, x + size / 2, y + size * 1.2 + 20], fill="grey")
         img.save(frame_paths[1])
 
-    # Frame 3: Streamers
+    # Frame 3: Stars
     if not os.path.exists(frame_paths[2]):
-        logging.info(f"Creating birthday frame at {frame_paths[2]}")
-        width, height = 800, 600
+        logging.info(f"Creating stars frame at {frame_paths[2]}")
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        for _ in range(150):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(8, 25)
+            # Simple star polygon
+            draw.polygon([
+                (x, y - size), (x + size * 0.3, y - size * 0.3), (x + size, y),
+                (x + size * 0.3, y + size * 0.3), (x, y + size), (x - size * 0.3, y + size * 0.3),
+                (x - size, y), (x - size * 0.3, y - size * 0.3)
+            ], fill="yellow")
+        img.save(frame_paths[2])
+
+    # Frame 4: Streamers
+    if not os.path.exists(frame_paths[3]):
+        logging.info(f"Creating streamers frame at {frame_paths[3]}")
         img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         colors = ["#FFD700", "#FF6347", "#00CED1", "#9370DB"]
-        for _ in range(15):
-            start_x = random.randint(-50, width + 50)
-            start_y = random.randint(-50, 50)
-            end_x = random.randint(-50, width + 50)
-            end_y = height + 50
-            draw.line([start_x, start_y, end_x, end_y], fill=random.choice(colors), width=3)
-        img.save(frame_paths[2])
-
-    # Frame 4: Bunting
-    if not os.path.exists(frame_paths[3]):
-        logging.info(f"Creating birthday frame at {frame_paths[3]}")
-        width, height = 800, 600
-        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        colors = ["#FF69B4", "#32CD32", "#FFA500", "#1E90FF"]
-        for i in range(10):
-            x1 = i * (width / 10)
-            y1 = 20
-            x2 = (i + 1) * (width / 10)
-            y2 = 20
-            cx = (x1 + x2) / 2
-            cy = 60
-            draw.polygon([(x1, y1), (x2, y2), (cx, cy)], fill=random.choice(colors))
+        # Top-left corner
+        for _ in range(10):
+            end_x, end_y = _get_random_point_in_border(width, height)
+            draw.line([0, 0, end_x, end_y], fill=random.choice(colors), width=2)
+        # Top-right corner
+        for _ in range(10):
+            end_x, end_y = _get_random_point_in_border(width, height)
+            draw.line([width, 0, end_x, end_y], fill=random.choice(colors), width=2)
         img.save(frame_paths[3])
-
-    # Frame 5: Stars
-    if not os.path.exists(frame_paths[4]):
-        logging.info(f"Creating birthday frame at {frame_paths[4]}")
-        width, height = 800, 600
-        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        for _ in range(100):
-            x = random.randint(0, width)
-            y = random.randint(0, height)
-            size = random.randint(5, 20)
-            # A simple star shape
-            draw.polygon([
-                (x, y - size), (x + size * 0.2, y - size * 0.2), (x + size, y),
-                (x + size * 0.2, y + size * 0.2), (x, y + size), (x - size * 0.2, y + size * 0.2),
-                (x - size, y), (x - size * 0.2, y - size * 0.2)
-            ], fill="yellow")
-        img.save(frame_paths[4])
-
-    # Frame 6: Bubbles
-    if not os.path.exists(frame_paths[5]):
-        logging.info(f"Creating birthday frame at {frame_paths[5]}")
-        width, height = 800, 600
-        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        for _ in range(50):
-            x = random.randint(0, width)
-            y = random.randint(0, height)
-            size = random.randint(10, 50)
-            draw.ellipse([x, y, x + size, y + size], outline="cyan", width=2)
-        img.save(frame_paths[5])
-
-    # Frame 7: Geometric Shapes
-    if not os.path.exists(frame_paths[6]):
-        logging.info(f"Creating birthday frame at {frame_paths[6]}")
-        width, height = 800, 600
-        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        colors = ["#FF4500", "#2E8B57", "#4682B4", "#DAA520"]
-        for _ in range(70):
-            x = random.randint(0, width)
-            y = random.randint(0, height)
-            size = random.randint(10, 40)
-            if random.random() > 0.5:
-                draw.rectangle([x, y, x + size, y + size], fill=random.choice(colors))
-            else:
-                draw.polygon([(x, y), (x + size, y), (x + size / 2, y + size)], fill=random.choice(colors))
-        img.save(frame_paths[6])
 
 
 def create_change_frame_icon_if_needed():
