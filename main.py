@@ -53,24 +53,6 @@ def create_default_banner_if_needed():
         img.save(banner_path)
 
 
-def create_camera_icon_if_needed():
-    """Creates a camera switch icon if it's missing."""
-    icon_path = 'assets/camera_icon.png'
-    if not os.path.exists(icon_path):
-        logging.info(f"Creating camera icon at {icon_path}")
-        size = 128
-        img = PILImage.new('RGBA', (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        # Draw a circle
-        draw.ellipse((10, 10, size - 10, size - 10), outline='white', width=8)
-        # Draw two arrows to indicate switching
-        draw.line((40, 40, 64, 20), fill='white', width=8)
-        draw.line((64, 20, 88, 40), fill='white', width=8)
-        draw.line((40, 88, 64, 108), fill='white', width=8)
-        draw.line((64, 108, 88, 88), fill='white', width=8)
-        img.save(icon_path)
-
-
 class RoundButton(ButtonBehavior, Widget):
     def __init__(self, **kwargs):
         super(RoundButton, self).__init__(**kwargs)
@@ -205,9 +187,9 @@ class CameraApp(App):
         root.add_widget(main_layout)
 
         self.camera_switch_button = RoundImageButton(
-            source='assets/camera_icon.png',
+            source='assets/system-settings.png',
             size_hint=(None, None),
-            size=(80, 80),
+            size=(32, 32),
             pos_hint={'x': 0.05, 'y': 0.05}
         )
         self.camera_switch_button.bind(on_press=self.open_camera_selector)
@@ -333,5 +315,4 @@ class CameraApp(App):
 
 if __name__ == '__main__':
     create_default_banner_if_needed()
-    create_camera_icon_if_needed()
     CameraApp().run()
