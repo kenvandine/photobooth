@@ -119,7 +119,6 @@ def create_birthday_frames_if_needed():
         draw = ImageDraw.Draw(img)
 
         # Draw colorful dots as a border
-        import random
         colors = ["red", "green", "blue", "yellow", "purple", "orange"]
         dot_size = 5
         for _ in range(400):  # More dots for a denser feel
