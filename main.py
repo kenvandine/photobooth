@@ -593,6 +593,25 @@ class CameraApp(App):
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         logging.info(f"Resolution changed to {w}x{h}")
 
+    def _apply_overlay(self, frame):
+        """
+        Applies the birthday frame overlay to a given frame.
+        """
+        if self.birthday_frame is None:
+            return frame
+
+        # Resize frame overlay to match camera frame size
+        h, w, _ = frame.shape
+        overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+
+        # Separate the overlay into color and alpha channels
+        overlay_rgb = overlay_resized[:, :, :3]
+        alpha = overlay_resized[:, :, 3] / 255.0
+
+        # Blend the overlay with the frame
+        blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
+        return blended_frame.astype('uint8')
+
     def update(self, dt):
         """
         Updates the camera view with a new frame.
@@ -606,18 +625,7 @@ class CameraApp(App):
             return
         ret, frame = self.capture.read()
         if ret:
-            if self.birthday_frame is not None:
-                # Resize frame overlay to match camera frame size
-                h, w, _ = frame.shape
-                overlay_resized = cv2.resize(self.birthday_frame, (w, h))
-
-                # Separate the overlay into color and alpha channels
-                overlay_rgb = overlay_resized[:, :, :3]
-                alpha = overlay_resized[:, :, 3] / 255.0
-
-                # Blend the overlay with the frame
-                frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
-                frame = frame.astype('uint8')
+            frame = self._apply_overlay(frame)
 
             # Convert the BGR frame from OpenCV to RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -650,9 +658,11 @@ class CameraApp(App):
             os.makedirs("photos")
         ret, frame = self.capture.read()
         if ret:
+            # Apply the overlay before saving
+            frame_with_overlay = self._apply_overlay(frame)
             now = datetime.now()
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-            cv2.imwrite(filename, frame)
+            cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
 
