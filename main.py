@@ -85,7 +85,9 @@ def create_birthday_frames_if_needed():
     if not os.path.exists(frames_dir):
         os.makedirs(frames_dir)
 
-    frame_paths = [os.path.join(frames_dir, f) for f in ['frame1.png', 'frame2.png']]
+    frame_paths = [os.path.join(frames_dir, f) for f in [
+        'frame1.png', 'frame2.png', 'frame3.png', 'frame4.png', 'frame5.png', 'frame6.png', 'frame7.png'
+    ]]
 
     # Frame 1: Simple "Happy Birthday" text
     if not os.path.exists(frame_paths[0]):
@@ -139,6 +141,86 @@ def create_birthday_frames_if_needed():
             draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
 
         img.save(frame_paths[1])
+
+    # Frame 3: Streamers
+    if not os.path.exists(frame_paths[2]):
+        logging.info(f"Creating birthday frame at {frame_paths[2]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = ["#FFD700", "#FF6347", "#00CED1", "#9370DB"]
+        for _ in range(15):
+            start_x = random.randint(-50, width + 50)
+            start_y = random.randint(-50, 50)
+            end_x = random.randint(-50, width + 50)
+            end_y = height + 50
+            draw.line([start_x, start_y, end_x, end_y], fill=random.choice(colors), width=3)
+        img.save(frame_paths[2])
+
+    # Frame 4: Bunting
+    if not os.path.exists(frame_paths[3]):
+        logging.info(f"Creating birthday frame at {frame_paths[3]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = ["#FF69B4", "#32CD32", "#FFA500", "#1E90FF"]
+        for i in range(10):
+            x1 = i * (width / 10)
+            y1 = 20
+            x2 = (i + 1) * (width / 10)
+            y2 = 20
+            cx = (x1 + x2) / 2
+            cy = 60
+            draw.polygon([(x1, y1), (x2, y2), (cx, cy)], fill=random.choice(colors))
+        img.save(frame_paths[3])
+
+    # Frame 5: Stars
+    if not os.path.exists(frame_paths[4]):
+        logging.info(f"Creating birthday frame at {frame_paths[4]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        for _ in range(100):
+            x = random.randint(0, width)
+            y = random.randint(0, height)
+            size = random.randint(5, 20)
+            # A simple star shape
+            draw.polygon([
+                (x, y - size), (x + size * 0.2, y - size * 0.2), (x + size, y),
+                (x + size * 0.2, y + size * 0.2), (x, y + size), (x - size * 0.2, y + size * 0.2),
+                (x - size, y), (x - size * 0.2, y - size * 0.2)
+            ], fill="yellow")
+        img.save(frame_paths[4])
+
+    # Frame 6: Bubbles
+    if not os.path.exists(frame_paths[5]):
+        logging.info(f"Creating birthday frame at {frame_paths[5]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        for _ in range(50):
+            x = random.randint(0, width)
+            y = random.randint(0, height)
+            size = random.randint(10, 50)
+            draw.ellipse([x, y, x + size, y + size], outline="cyan", width=2)
+        img.save(frame_paths[5])
+
+    # Frame 7: Geometric Shapes
+    if not os.path.exists(frame_paths[6]):
+        logging.info(f"Creating birthday frame at {frame_paths[6]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = ["#FF4500", "#2E8B57", "#4682B4", "#DAA520"]
+        for _ in range(70):
+            x = random.randint(0, width)
+            y = random.randint(0, height)
+            size = random.randint(10, 40)
+            if random.random() > 0.5:
+                draw.rectangle([x, y, x + size, y + size], fill=random.choice(colors))
+            else:
+                draw.polygon([(x, y), (x + size, y), (x + size / 2, y + size)], fill=random.choice(colors))
+        img.save(frame_paths[6])
 
 
 class RoundButton(ButtonBehavior, Widget):
