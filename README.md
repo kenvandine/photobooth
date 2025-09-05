@@ -11,6 +11,16 @@ A full-screen, touch-friendly photobooth application created for Linux. This app
 *   **Flash Effect**: A fun, on-screen white flash effect gives you visual feedback when a photo is taken.
 *   **Customizable Banner**: Display a custom banner image at the top of the application.
 
+## Setup
+
+Before running the application for the first time, you need to generate the necessary image assets. Run the following command:
+
+```bash
+python create_assets.py
+```
+
+This will create the default banner, birthday frames, and UI icons in the `assets/` directory.
+
 ## Configuration
 
 ### Banner Image
@@ -22,7 +32,7 @@ For example:
 export CUSTOM_BANNER_PATH="/path/to/your/banner.png"
 python main.py
 ```
-If the environment variable is not set, the application will look for a default banner at `assets/default_banner.png`. If this file does not exist, a plain grey banner will be created automatically.
+If the environment variable is not set, the application will look for a default banner at `assets/default_banner.png`.
 
 ## Disclaimer
 
