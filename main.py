@@ -222,6 +222,24 @@ def create_birthday_frames_if_needed():
         img.save(frame_paths[6])
 
 
+def create_change_frame_icon_if_needed():
+    """
+    Creates a simple icon for the frame-changing button if it doesn't exist.
+    """
+    icon_path = 'assets/change-frame.png'
+    if not os.path.exists(icon_path):
+        logging.info(f"Creating change frame icon at {icon_path}")
+        width, height = 64, 64
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # A simple design: three colored squares
+        colors = ["#FF5733", "#33FF57", "#3357FF"]
+        draw.rectangle([10, 22, 30, 42], fill=colors[0])
+        draw.rectangle([22, 10, 42, 30], fill=colors[1])
+        draw.rectangle([34, 22, 54, 42], fill=colors[2])
+        img.save(icon_path)
+
+
 class RoundButton(ButtonBehavior, Widget):
     """
     A circular button with a visual feedback effect on press.
@@ -397,11 +415,14 @@ class CameraApp(App):
             FloatLayout: The root widget of the application.
         """
         self.birthday_frame = None
-        frame_files = glob.glob('assets/frames/*.png')
-        if frame_files:
-            random_frame_path = random.choice(frame_files)
-            self.birthday_frame = cv2.imread(random_frame_path, cv2.IMREAD_UNCHANGED)
-            logging.info(f"Loaded birthday frame: {random_frame_path}")
+        self.frame_files = sorted(glob.glob('assets/frames/*.png'))
+        self.current_frame_index = 0
+        if self.frame_files:
+            # Start with a random frame
+            self.current_frame_index = random.randint(0, len(self.frame_files) - 1)
+            frame_path = self.frame_files[self.current_frame_index]
+            self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+            logging.info(f"Loaded birthday frame: {frame_path}")
 
         Window.clearcolor = (0.678, 0.847, 0.902, 1)  # Light blue background
         root = FloatLayout()
@@ -459,6 +480,16 @@ class CameraApp(App):
         )
         self.camera_switch_button.bind(on_press=self.open_camera_selector)
         root.add_widget(self.camera_switch_button)
+
+        # A button to change the birthday frame
+        self.frame_switch_button = RoundImageButton(
+            source='assets/change-frame.png',
+            size_hint=(None, None),
+            size=(32, 32),
+            pos_hint={'right': 0.95, 'y': 0.05}
+        )
+        self.frame_switch_button.bind(on_press=self.change_birthday_frame)
+        root.add_widget(self.frame_switch_button)
 
         # A white widget for the flash effect
         self.flash = Widget(opacity=0)
@@ -578,6 +609,21 @@ class CameraApp(App):
         self.on_camera_select(camera_name)
         popup.dismiss()
 
+    def change_birthday_frame(self, *args):
+        """
+        Cycles to the next available birthday frame.
+        """
+        if not self.frame_files:
+            return
+
+        # Increment index and wrap around
+        self.current_frame_index = (self.current_frame_index + 1) % len(self.frame_files)
+
+        # Load the new frame
+        frame_path = self.frame_files[self.current_frame_index]
+        self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        logging.info(f"Changed birthday frame to: {frame_path}")
+
     def on_resolution_select(self, spinner, text):
         """
         Event handler for resolution selection from the spinner.
@@ -677,4 +723,5 @@ class CameraApp(App):
 if __name__ == '__main__':
     create_default_banner_if_needed()
     create_birthday_frames_if_needed()
+    create_change_frame_icon_if_needed()
     CameraApp().run()
