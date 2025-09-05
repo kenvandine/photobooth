@@ -30,6 +30,8 @@ from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 import cv2
 import os
+import random
+import glob
 from datetime import datetime
 import logging
 import subprocess
@@ -70,6 +72,73 @@ def create_default_banner_if_needed():
         # Create a dark grey image using Pillow
         img = PILImage.new('RGB', (width, height), color = (50, 50, 50))
         img.save(banner_path)
+
+
+def create_birthday_frames_if_needed():
+    """
+    Checks if birthday frame images exist and creates them if they do not.
+
+    The frames are simple images with birthday-themed decorations, saved as
+    PNG files in the `assets/frames/` directory.
+    """
+    frames_dir = 'assets/frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    frame_paths = [os.path.join(frames_dir, f) for f in ['frame1.png', 'frame2.png']]
+
+    # Frame 1: Simple "Happy Birthday" text
+    if not os.path.exists(frame_paths[0]):
+        logging.info(f"Creating birthday frame at {frame_paths[0]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Add a simple border
+        draw.rectangle([0, 0, width-1, height-1], outline="gold", width=10)
+
+        # Add text
+        try:
+            from PIL import ImageFont
+            # Try to load a default font
+            font = ImageFont.truetype("sans-serif.ttf", 40)
+        except IOError:
+            # If default font is not available, use a basic one
+            font = ImageFont.load_default()
+
+        draw.text((width/2, 50), "Happy Birthday!", fill="gold", font=font, anchor="mt")
+        img.save(frame_paths[0])
+
+    # Frame 2: Colorful confetti-like border
+    if not os.path.exists(frame_paths[1]):
+        logging.info(f"Creating birthday frame at {frame_paths[1]}")
+        width, height = 800, 600
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Draw colorful dots as a border
+        import random
+        colors = ["red", "green", "blue", "yellow", "purple", "orange"]
+        dot_size = 5
+        for _ in range(400):  # More dots for a denser feel
+            # Top border
+            x = random.randint(0, width - dot_size)
+            y = random.randint(0, 30)
+            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
+            # Bottom border
+            x = random.randint(0, width - dot_size)
+            y = random.randint(height - 30 - dot_size, height - dot_size)
+            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
+            # Left border
+            x = random.randint(0, 30)
+            y = random.randint(0, height - dot_size)
+            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
+            # Right border
+            x = random.randint(width - 30 - dot_size, width - dot_size)
+            y = random.randint(0, height - dot_size)
+            draw.ellipse([x, y, x + dot_size, y + dot_size], fill=random.choice(colors))
+
+        img.save(frame_paths[1])
 
 
 class RoundButton(ButtonBehavior, Widget):
@@ -246,6 +315,13 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        self.birthday_frame = None
+        frame_files = glob.glob('assets/frames/*.png')
+        if frame_files:
+            random_frame_path = random.choice(frame_files)
+            self.birthday_frame = cv2.imread(random_frame_path, cv2.IMREAD_UNCHANGED)
+            logging.info(f"Loaded birthday frame: {random_frame_path}")
+
         Window.clearcolor = (0.678, 0.847, 0.902, 1)  # Light blue background
         root = FloatLayout()
         main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
@@ -449,6 +525,19 @@ class CameraApp(App):
             return
         ret, frame = self.capture.read()
         if ret:
+            if self.birthday_frame is not None:
+                # Resize frame overlay to match camera frame size
+                h, w, _ = frame.shape
+                overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+
+                # Separate the overlay into color and alpha channels
+                overlay_rgb = overlay_resized[:, :, :3]
+                alpha = overlay_resized[:, :, 3] / 255.0
+
+                # Blend the overlay with the frame
+                frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
+                frame = frame.astype('uint8')
+
             # Convert the BGR frame from OpenCV to RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             # Flip the frame vertically (otherwise it's upside down)
@@ -496,4 +585,5 @@ class CameraApp(App):
 
 if __name__ == '__main__':
     create_default_banner_if_needed()
+    create_birthday_frames_if_needed()
     CameraApp().run()
