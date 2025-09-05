@@ -87,7 +87,7 @@ class RoundButton(ButtonBehavior, Widget):
         with self.canvas.before:
             Color(0.4, 0.4, 0.4, 1)  # Dark grey for the outer ring
             self.ring = Ellipse()
-            Color(0, 0, 0, 1)  # Black for the inner circle
+            Color(0.7, 0.7, 0.7, 1)  # Lighter grey for the inner circle
             self.circle = Ellipse()
         self.bind(pos=self.update_graphics, size=self.update_graphics)
         self.update_graphics()
