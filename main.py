@@ -15,6 +15,7 @@ kivy.require('2.3.1')
 
 from kivy.app import App
 from kivy.animation import Animation
+from kivy.core.window import Window
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
@@ -245,6 +246,7 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        Window.clearcolor = (0.678, 0.847, 0.902, 1)  # Light blue background
         root = FloatLayout()
         main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
 
