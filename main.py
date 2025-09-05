@@ -9,6 +9,7 @@ from kivy.uix.widget import Widget
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.graphics import Color, Ellipse, Rectangle, StencilPush, StencilPop
 from kivy.uix.image import Image
+from kivy.uix.spinner import Spinner
 from kivy.uix.popup import Popup
 from kivy.uix.button import Button
 from kivy.clock import Clock
