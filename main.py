@@ -112,7 +112,7 @@ def create_birthday_frames_if_needed():
         os.makedirs(frames_dir)
 
     frame_paths = [os.path.join(frames_dir, f) for f in [
-        'frame_confetti.png', 'frame_balloons.png', 'frame_stars.png', 'frame_streamers.png'
+        'frame_confetti.png', 'frame_balloons.png', 'frame_stars.png'
     ]]
     width, height = 800, 600
 
@@ -158,22 +158,6 @@ def create_birthday_frames_if_needed():
                 (x - size, y), (x - size * 0.3, y - size * 0.3)
             ], fill="yellow")
         img.save(frame_paths[2])
-
-    # Frame 4: Streamers
-    if not os.path.exists(frame_paths[3]):
-        logging.info(f"Creating streamers frame at {frame_paths[3]}")
-        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        colors = ["#FFD700", "#FF6347", "#00CED1", "#9370DB"]
-        # Top-left corner
-        for _ in range(10):
-            end_x, end_y = _get_random_point_in_border(width, height)
-            draw.line([0, 0, end_x, end_y], fill=random.choice(colors), width=2)
-        # Top-right corner
-        for _ in range(10):
-            end_x, end_y = _get_random_point_in_border(width, height)
-            draw.line([width, 0, end_x, end_y], fill=random.choice(colors), width=2)
-        img.save(frame_paths[3])
 
 
 def create_change_frame_icon_if_needed():
