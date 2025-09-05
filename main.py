@@ -76,10 +76,10 @@ def create_default_banner_if_needed():
 
 def _get_random_point_in_border(width, height):
     """
-    Gets a random (x, y) coordinate in the outer 20% of the image border.
+    Gets a random (x, y) coordinate in the outer 15% of the image border.
     """
-    border_w = width * 0.2
-    border_h = height * 0.2
+    border_w = width * 0.15
+    border_h = height * 0.15
 
     # Decide which border to place the point in (top, bottom, left, right)
     side = random.choice(['top', 'bottom', 'left', 'right'])
