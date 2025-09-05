@@ -30,6 +30,8 @@ from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 import cv2
 import os
+import random
+import glob
 from datetime import datetime
 import logging
 import subprocess
@@ -70,6 +72,110 @@ def create_default_banner_if_needed():
         # Create a dark grey image using Pillow
         img = PILImage.new('RGB', (width, height), color = (50, 50, 50))
         img.save(banner_path)
+
+
+def _get_random_point_in_border(width, height):
+    """
+    Gets a random (x, y) coordinate in the outer 15% of the image border.
+    """
+    border_w = width * 0.15
+    border_h = height * 0.15
+
+    # Decide which border to place the point in (top, bottom, left, right)
+    side = random.choice(['top', 'bottom', 'left', 'right'])
+
+    if side == 'top':
+        x = random.randint(0, width)
+        y = random.randint(0, int(border_h))
+    elif side == 'bottom':
+        x = random.randint(0, width)
+        y = random.randint(int(height - border_h), height)
+    elif side == 'left':
+        x = random.randint(0, int(border_w))
+        y = random.randint(0, height)
+    else:  # right
+        x = random.randint(int(width - border_w), width)
+        y = random.randint(0, height)
+    return x, y
+
+
+def create_birthday_frames_if_needed():
+    """
+    Checks if birthday frame images exist and creates them if they do not.
+
+    The frames are simple images with birthday-themed decorations, saved as
+    PNG files in the `assets/frames/` directory. All frames only use the
+    outer 20% of the image area.
+    """
+    frames_dir = 'assets/frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    frame_paths = [os.path.join(frames_dir, f) for f in [
+        'frame_confetti.png', 'frame_balloons.png', 'frame_stars.png'
+    ]]
+    width, height = 800, 600
+
+    # Frame 1: Confetti
+    if not os.path.exists(frame_paths[0]):
+        logging.info(f"Creating confetti frame at {frame_paths[0]}")
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = ["#FFD700", "#FF6347", "#00CED1", "#9370DB", "#32CD32"]
+        for _ in range(500):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(3, 8)
+            draw.ellipse([x, y, x + size, y + size], fill=random.choice(colors))
+        img.save(frame_paths[0])
+
+    # Frame 2: Balloons
+    if not os.path.exists(frame_paths[1]):
+        logging.info(f"Creating balloons frame at {frame_paths[1]}")
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = ["#FF69B4", "#1E90FF", "#FFA500", "#FF4500"]
+        for _ in range(25):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(20, 50)
+            # Balloon shape
+            draw.ellipse([x, y, x + size, y + size * 1.2], fill=random.choice(colors))
+            # String
+            draw.line([x + size / 2, y + size * 1.2, x + size / 2, y + size * 1.2 + 20], fill="grey")
+        img.save(frame_paths[1])
+
+    # Frame 3: Stars
+    if not os.path.exists(frame_paths[2]):
+        logging.info(f"Creating stars frame at {frame_paths[2]}")
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        for _ in range(150):
+            x, y = _get_random_point_in_border(width, height)
+            size = random.randint(8, 25)
+            # Simple star polygon
+            draw.polygon([
+                (x, y - size), (x + size * 0.3, y - size * 0.3), (x + size, y),
+                (x + size * 0.3, y + size * 0.3), (x, y + size), (x - size * 0.3, y + size * 0.3),
+                (x - size, y), (x - size * 0.3, y - size * 0.3)
+            ], fill="yellow")
+        img.save(frame_paths[2])
+
+
+def create_change_frame_icon_if_needed():
+    """
+    Creates a simple icon for the frame-changing button if it doesn't exist.
+    """
+    icon_path = 'assets/change-frame.png'
+    if not os.path.exists(icon_path):
+        logging.info(f"Creating change frame icon at {icon_path}")
+        width, height = 64, 64
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # A simple design: three colored squares
+        colors = ["#FF5733", "#33FF57", "#3357FF"]
+        draw.rectangle([10, 22, 30, 42], fill=colors[0])
+        draw.rectangle([22, 10, 42, 30], fill=colors[1])
+        draw.rectangle([34, 22, 54, 42], fill=colors[2])
+        img.save(icon_path)
 
 
 class RoundButton(ButtonBehavior, Widget):
@@ -246,6 +352,16 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        self.birthday_frame = None
+        self.frame_files = sorted(glob.glob('assets/frames/*.png'))
+        self.current_frame_index = 0
+        if self.frame_files:
+            # Start with a random frame
+            self.current_frame_index = random.randint(0, len(self.frame_files) - 1)
+            frame_path = self.frame_files[self.current_frame_index]
+            self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+            logging.info(f"Loaded birthday frame: {frame_path}")
+
         Window.clearcolor = (0.678, 0.847, 0.902, 1)  # Light blue background
         root = FloatLayout()
         main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
@@ -302,6 +418,16 @@ class CameraApp(App):
         )
         self.camera_switch_button.bind(on_press=self.open_camera_selector)
         root.add_widget(self.camera_switch_button)
+
+        # A button to change the birthday frame
+        self.frame_switch_button = RoundImageButton(
+            source='assets/change-frame.png',
+            size_hint=(None, None),
+            size=(32, 32),
+            pos_hint={'right': 0.95, 'y': 0.05}
+        )
+        self.frame_switch_button.bind(on_press=self.change_birthday_frame)
+        root.add_widget(self.frame_switch_button)
 
         # A white widget for the flash effect
         self.flash = Widget(opacity=0)
@@ -421,6 +547,21 @@ class CameraApp(App):
         self.on_camera_select(camera_name)
         popup.dismiss()
 
+    def change_birthday_frame(self, *args):
+        """
+        Cycles to the next available birthday frame.
+        """
+        if not self.frame_files:
+            return
+
+        # Increment index and wrap around
+        self.current_frame_index = (self.current_frame_index + 1) % len(self.frame_files)
+
+        # Load the new frame
+        frame_path = self.frame_files[self.current_frame_index]
+        self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        logging.info(f"Changed birthday frame to: {frame_path}")
+
     def on_resolution_select(self, spinner, text):
         """
         Event handler for resolution selection from the spinner.
@@ -436,6 +577,25 @@ class CameraApp(App):
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         logging.info(f"Resolution changed to {w}x{h}")
 
+    def _apply_overlay(self, frame):
+        """
+        Applies the birthday frame overlay to a given frame.
+        """
+        if self.birthday_frame is None:
+            return frame
+
+        # Resize frame overlay to match camera frame size
+        h, w, _ = frame.shape
+        overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+
+        # Separate the overlay into color and alpha channels
+        overlay_rgb = overlay_resized[:, :, :3]
+        alpha = overlay_resized[:, :, 3] / 255.0
+
+        # Blend the overlay with the frame
+        blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
+        return blended_frame.astype('uint8')
+
     def update(self, dt):
         """
         Updates the camera view with a new frame.
@@ -449,6 +609,8 @@ class CameraApp(App):
             return
         ret, frame = self.capture.read()
         if ret:
+            frame = self._apply_overlay(frame)
+
             # Convert the BGR frame from OpenCV to RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             # Flip the frame vertically (otherwise it's upside down)
@@ -480,9 +642,11 @@ class CameraApp(App):
             os.makedirs("photos")
         ret, frame = self.capture.read()
         if ret:
+            # Apply the overlay before saving
+            frame_with_overlay = self._apply_overlay(frame)
             now = datetime.now()
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-            cv2.imwrite(filename, frame)
+            cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
 
@@ -496,4 +660,6 @@ class CameraApp(App):
 
 if __name__ == '__main__':
     create_default_banner_if_needed()
+    create_birthday_frames_if_needed()
+    create_change_frame_icon_if_needed()
     CameraApp().run()
