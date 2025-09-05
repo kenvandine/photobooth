@@ -12,6 +12,7 @@ from kivy.uix.image import Image
 from kivy.uix.spinner import Spinner
 from kivy.uix.popup import Popup
 from kivy.uix.button import Button
+from kivy.uix.label import Label
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 import cv2
@@ -183,8 +184,6 @@ class CameraApp(App):
         self.camera_view = Image()
         main_layout.add_widget(self.camera_view)
 
-        controls_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
-
         self.available_cameras = self.get_available_cameras()
         if not self.available_cameras:
             logging.error("No cameras found!")
@@ -194,8 +193,6 @@ class CameraApp(App):
 
         self.resolution_selector = Spinner(text="Resolution", values=[], size_hint_y=None, height=50)
         self.resolution_selector.bind(text=self.on_resolution_select)
-        controls_layout.add_widget(self.resolution_selector)
-        main_layout.add_widget(controls_layout)
 
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
         button_layout.add_widget(Widget())
@@ -259,13 +256,31 @@ class CameraApp(App):
         self.update_camera(camera_name)
 
     def open_camera_selector(self, instance):
-        content = BoxLayout(orientation='vertical', spacing=10)
-        popup = Popup(title='Select Camera', content=content, size_hint=(0.8, 0.8))
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        popup = Popup(title='Camera & Resolution', content=content, size_hint=(0.8, 0.9))
 
+        # Add camera selection
+        content.add_widget(Label(text='Cameras', size_hint_y=None, height=40))
         for camera_name in self.available_cameras.keys():
             btn = Button(text=camera_name, size_hint_y=None, height=50)
             btn.bind(on_release=lambda x, name=camera_name: self.select_camera_and_close(name, popup))
             content.add_widget(btn)
+
+        # Add resolution selection
+        content.add_widget(Label(text='Resolution', size_hint_y=None, height=40))
+        if self.resolution_selector.parent:
+            self.resolution_selector.parent.remove_widget(self.resolution_selector)
+        content.add_widget(self.resolution_selector)
+
+        def cleanup_on_dismiss(popup_instance):
+            if self.resolution_selector.parent:
+                self.resolution_selector.parent.remove_widget(self.resolution_selector)
+        popup.bind(on_dismiss=cleanup_on_dismiss)
+
+        # Add a close button to the popup for abandoning selection
+        close_button = Button(text='Close', size_hint_y=None, height=50)
+        close_button.bind(on_release=popup.dismiss)
+        content.add_widget(close_button)
 
         popup.open()
 
