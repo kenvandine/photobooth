@@ -6,3 +6,5 @@ docutils==0.22
 pygments==2.19.2
 numpy==2.2.6
 filetype==1.2.0
+openai-whisper
+sounddevice
