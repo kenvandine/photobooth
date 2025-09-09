@@ -36,7 +36,14 @@ from datetime import datetime
 import logging
 import subprocess
 import re
-from voice_listener import VoiceListener
+try:
+    from voice_listener import VoiceListener
+    VOICE_LISTENER_AVAILABLE = True
+except ImportError:
+    VOICE_LISTENER_AVAILABLE = False
+    logging.warning("Voice listener dependencies not found. Voice activation will be disabled.")
+    logging.warning("To enable voice activation, install the extra dependencies: pip install -r requirements-voice.txt")
+
 logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
@@ -332,15 +339,17 @@ class CameraApp(App):
         # Schedule the camera feed update
         Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
 
-        # Create a Kivy-safe trigger for capturing a photo
-        self.capture_trigger = Clock.create_trigger(self.capture_photo)
-        # Initialize and start the voice listener
-        try:
-            self.voice_listener = VoiceListener(callback=self.capture_trigger)
-            self.voice_listener.start()
-        except Exception as e:
-            logging.error(f"Failed to start voice listener: {e}")
-            self.voice_listener = None
+        self.voice_listener = None
+        if VOICE_LISTENER_AVAILABLE:
+            # Create a Kivy-safe trigger for capturing a photo
+            self.capture_trigger = Clock.create_trigger(self.capture_photo)
+            # Initialize and start the voice listener
+            try:
+                self.voice_listener = VoiceListener(callback=self.capture_trigger)
+                self.voice_listener.start()
+            except Exception as e:
+                logging.error(f"Failed to start voice listener: {e}")
+                self.voice_listener = None
 
         return root
 

@@ -10,8 +10,7 @@ A full-screen, touch-friendly photobooth application created for Linux. This app
 *   **Photo Capture**: A large, round, touch-friendly button lets you snap a photo.
 *   **Flash Effect**: A fun, on-screen white flash effect gives you visual feedback when a photo is taken.
 *   **Customizable Banner**: Display a custom banner image at the top of the application.
-
-## Setup
+*   **Optional Voice Activation**: Say "Smile!" to start the photo countdown. This is an optional feature.
 
 Before running the application for the first time, you need to generate the necessary image assets. Run the following command:
 
@@ -20,6 +19,16 @@ python create_assets.py
 ```
 
 This will create the default banner, birthday frames, and UI icons in the `assets/` directory.
+
+### Voice Activation (Optional)
+
+This application supports voice activation using the "Smile!" command. This is an optional feature. To enable it, you must install the additional dependencies:
+
+```bash
+pip install -r requirements-voice.txt
+```
+
+If these dependencies are not installed, the application will run without voice activation, and you can continue to use the on-screen button to take photos.
 
 ## Configuration
 
