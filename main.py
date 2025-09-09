@@ -303,6 +303,19 @@ class CameraApp(App):
         self.frame_switch_button.bind(on_press=self.change_birthday_frame)
         root.add_widget(self.frame_switch_button)
 
+        # Add a label for the countdown timer
+        self.countdown_label = Label(
+            text="",
+            font_size='200sp',
+            bold=True,
+            color=(1, 1, 1, 1),
+            outline_width=5,
+            outline_color=(0, 0, 0, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+        )
+        root.add_widget(self.countdown_label)
+        self.countdown_active = False
+
         # A white widget for the flash effect
         self.flash = Widget(opacity=0)
         with self.flash.canvas:
@@ -505,6 +518,33 @@ class CameraApp(App):
         Animation(opacity=0, duration=0.2).start(self.flash)
 
     def capture_photo(self, *args):
+        """
+        Starts a countdown before taking a photo.
+        """
+        if self.countdown_active:
+            return
+
+        self.countdown_active = True
+        self.capture_button.disabled = True
+        self.countdown_number = 3
+        self.countdown_label.text = str(self.countdown_number)
+        Clock.schedule_interval(self.update_countdown, 1)
+
+    def update_countdown(self, dt):
+        """
+        Updates the countdown label and takes a photo when the countdown finishes.
+        """
+        self.countdown_number -= 1
+        if self.countdown_number > 0:
+            self.countdown_label.text = str(self.countdown_number)
+        else:
+            self.countdown_label.text = ""
+            self._take_and_save_photo()
+            self.countdown_active = False
+            self.capture_button.disabled = False
+            return False  # Stop the clock event
+
+    def _take_and_save_photo(self, *args):
         """
         Captures a photo and saves it to the 'photos' directory.
         """
