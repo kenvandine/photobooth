@@ -66,7 +66,7 @@ class VoiceListener:
 
                         # Transcribe when we have a few seconds of audio
                         # This is a trade-off between responsiveness and accuracy
-                        if len(audio_buffer) >= self.samplerate * 3:
+                        if len(audio_buffer) >= int(self.samplerate * 1.5):
                             # Transcribe the audio buffer
                             result = model.transcribe(audio_buffer, fp16=False) # fp16=False if not using GPU
                             transcript = result['text'].lower()
