@@ -36,6 +36,7 @@ from datetime import datetime
 import logging
 import subprocess
 import re
+from voice_listener import VoiceListener
 logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
@@ -331,6 +332,16 @@ class CameraApp(App):
         # Schedule the camera feed update
         Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
 
+        # Create a Kivy-safe trigger for capturing a photo
+        self.capture_trigger = Clock.create_trigger(self.capture_photo)
+        # Initialize and start the voice listener
+        try:
+            self.voice_listener = VoiceListener(callback=self.capture_trigger)
+            self.voice_listener.start()
+        except Exception as e:
+            logging.error(f"Failed to start voice listener: {e}")
+            self.voice_listener = None
+
         return root
 
     def _update_flash_rect(self, instance, value):
@@ -566,8 +577,11 @@ class CameraApp(App):
 
     def on_stop(self):
         """
-        Cleanly releases the camera capture when the application is closed.
+        Cleanly releases the camera capture and stops the voice listener
+        when the application is closed.
         """
+        if hasattr(self, 'voice_listener') and self.voice_listener:
+            self.voice_listener.stop()
         if hasattr(self, 'capture') and self.capture:
             self.capture.release()
             logging.info("Camera released.")
