@@ -1,0 +1,16 @@
+{
+  "id": "3d8b734c-a174-4503-a0d5-bbb07f3f2a04",
+  "filename": "3d8b734c-a174-4503-a0d5-bbb07f3f2a04.jpg",
+  "original_filename": "test.jpg",
+  "timestamp": "2025-09-13T20:41:49.666317",
+  "file_size": 16,
+  "file_path": "test_api_photos/3d8b734c-a174-4503-a0d5-bbb07f3f2a04.jpg",
+  "content_type": "image/jpeg",
+  "title": "Test Title",
+  "description": "Test Description",
+  "tags": [
+    "tag1",
+    "tag2",
+    "tag3"
+  ]
+}

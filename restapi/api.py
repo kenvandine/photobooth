@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, current_app
 import os
 import json
 import uuid
@@ -11,17 +11,19 @@ from pathlib import Path
 app = Flask(__name__)
 
 # Configuration
-UPLOAD_FOLDER = 'api_photos'
-METADATA_FOLDER = 'photo_metadata'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# Default configuration
+app.config.setdefault('UPLOAD_FOLDER', 'api_photos')
+app.config.setdefault('METADATA_FOLDER', 'photo_metadata')
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
-# Create directories if they don't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(METADATA_FOLDER, exist_ok=True)
+@app.before_request
+def ensure_directories_exist():
+    """Create upload and metadata directories if they don't exist."""
+    os.makedirs(current_app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(current_app.config['METADATA_FOLDER'], exist_ok=True)
 
 def allowed_file(filename):
     """Check if the file extension is allowed."""
@@ -30,13 +32,15 @@ def allowed_file(filename):
 
 def save_metadata(photo_id, metadata):
     """Save photo metadata to JSON file."""
-    metadata_file = os.path.join(METADATA_FOLDER, f"{photo_id}.json")
+    metadata_folder = current_app.config['METADATA_FOLDER']
+    metadata_file = os.path.join(metadata_folder, f"{photo_id}.json")
     with open(metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2)
 
 def load_metadata(photo_id):
     """Load photo metadata from JSON file."""
-    metadata_file = os.path.join(METADATA_FOLDER, f"{photo_id}.json")
+    metadata_folder = current_app.config['METADATA_FOLDER']
+    metadata_file = os.path.join(metadata_folder, f"{photo_id}.json")
     if os.path.exists(metadata_file):
         with open(metadata_file, 'r') as f:
             return json.load(f)
@@ -45,7 +49,10 @@ def load_metadata(photo_id):
 def get_all_metadata():
     """Get metadata for all photos."""
     photos = []
-    for filename in os.listdir(METADATA_FOLDER):
+    metadata_folder = current_app.config['METADATA_FOLDER']
+    if not os.path.exists(metadata_folder):
+        return []
+    for filename in os.listdir(metadata_folder):
         if filename.endswith('.json'):
             photo_id = filename[:-5]  # Remove .json extension
             metadata = load_metadata(photo_id)
@@ -70,15 +77,19 @@ def upload_photo():
             if file.filename == '':
                 return jsonify({'error': 'No file selected'}), 400
             
-            if file and allowed_file(file.filename):
+            if not allowed_file(file.filename):
+                return jsonify({'error': 'Invalid file type'}), 400
+
+            if file:
                 # Generate secure filename
                 original_filename = secure_filename(file.filename)
                 file_extension = original_filename.rsplit('.', 1)[1].lower()
                 filename = f"{photo_id}.{file_extension}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
                 
                 # Save the file
                 file.save(filepath)
+                filepath = os.path.abspath(filepath)
                 file_size = os.path.getsize(filepath)
                 
         # Handle base64 data
@@ -93,11 +104,12 @@ def upload_photo():
                 # Decode base64 data
                 image_data = base64.b64decode(base64_data)
                 filename = f"{photo_id}.{file_extension}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
                 
                 # Save the file
                 with open(filepath, 'wb') as f:
                     f.write(image_data)
+                filepath = os.path.abspath(filepath)
                 file_size = len(image_data)
                 original_filename = f"upload.{file_extension}"
                 
@@ -275,7 +287,8 @@ def delete_photo(photo_id):
             os.remove(filepath)
             
         # Delete the metadata file
-        metadata_file = os.path.join(METADATA_FOLDER, f"{photo_id}.json")
+        metadata_folder = current_app.config['METADATA_FOLDER']
+        metadata_file = os.path.join(metadata_folder, f"{photo_id}.json")
         if os.path.exists(metadata_file):
             os.remove(metadata_file)
             
