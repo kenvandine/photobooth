@@ -27,6 +27,20 @@ python api.py
 
 The server will start on `http://localhost:5000`
 
+## Testing
+
+This project uses `pytest` for testing.
+
+1. Install testing dependencies:
+```bash
+pip install pytest
+```
+
+2. Run the tests:
+```bash
+pytest restapi/tests/
+```
+
 ## File Structure
 
 When running, the API creates the following directories:
