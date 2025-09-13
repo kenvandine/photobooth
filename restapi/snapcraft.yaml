@@ -14,16 +14,19 @@ parts:
   api:
     plugin: python
     source: .
-    requirements: [requirements.txt]
+    requirements: requirements.txt
     stage-packages:
       - nginx
     override-prime: |
       set -eux
       snapcraftctl prime
+      chmod +x $SNAPCRAFT_PRIME/bin/run-nginx.sh
       rm -f $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/default
       # nginx.conf is in the part's source directory
       cp $SNAPCRAFT_PART_SRC/nginx.conf $SNAPCRAFT_PRIME/etc/nginx/sites-available/photobooth-api
       ln -s ../sites-available/photobooth-api $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/photobooth-api
+    organize:
+      run-nginx.sh: bin/run-nginx.sh
 
 apps:
   gunicorn:
@@ -32,6 +35,6 @@ apps:
     plugs: [network]
 
   nginx:
-    command: usr/sbin/nginx -c $SNAP/etc/nginx/nginx.conf -g "daemon off;"
+    command: bin/run-nginx.sh
     daemon: simple
     plugs: [network, network-bind]
