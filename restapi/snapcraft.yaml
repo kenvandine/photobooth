@@ -11,8 +11,8 @@ grade: devel
 confinement: strict
 
 layout:
-  /etc/nginx/mime.types:
-    bind-file: $SNAP/etc/nginx/mime.types
+  /etc/nginx:
+    bind: $SNAP/etc/nginx
 
 parts:
   api:
@@ -32,6 +32,10 @@ parts:
       # nginx.conf is in the part's source directory
       cp $CRAFT_PART_SRC/nginx.conf $CRAFT_PART_INSTALL/etc/nginx/sites-available/photobooth-api
       ln -s ../sites-available/photobooth-api $CRAFT_PART_INSTALL/etc/nginx/sites-enabled/photobooth-api
+      sed -i -e 's|/var/log/nginx/error.log|/var/snap/photobooth-api/common/nginx-error.log|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
+      sed -i -e 's|/var/log/nginx/access.log|/var/snap/photobooth-api/common/nginx-access.log|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
+      sed -i -e 's|/run/nginx.pid|/var/snap/photobooth-api/common/nginx.pid|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
+      sed -i -e 's|www-data|root|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
 
 apps:
   gunicorn:
