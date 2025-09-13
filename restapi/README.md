@@ -17,12 +17,12 @@ A RESTful Flask API for managing photo uploads, storage, and retrieval. This API
 
 1. Install required dependencies:
 ```bash
-pip install flask
+pip3 install -r requirements.txt
 ```
 
 2. Run the API server:
 ```bash
-python api.py
+python3 api.py
 ```
 
 The server will start on `http://localhost:5000`
@@ -31,12 +31,7 @@ The server will start on `http://localhost:5000`
 
 This project uses `pytest` for testing.
 
-1. Install testing dependencies:
-```bash
-pip install pytest
-```
-
-2. Run the tests:
+Run the tests:
 ```bash
 pytest restapi/tests/
 ```
