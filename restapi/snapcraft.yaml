@@ -1,0 +1,45 @@
+name: photobooth-api
+base: core24
+version: '0.1'
+summary: A RESTful API for the photobooth application
+description: |
+  A RESTful Flask API for managing photo uploads, storage, and retrieval.
+  This API provides comprehensive photo management functionality including
+  file uploads, metadata storage, search capabilities, and CRUD operations.
+
+grade: devel
+confinement: strict
+
+layout:
+  /etc/nginx/mime.types:
+    bind-file: $SNAP/etc/nginx/mime.types
+
+parts:
+  api:
+    plugin: python
+    source: .
+    python-requirements: [requirements.txt]
+    stage-packages:
+      - nginx
+    override-build: |
+      set -eux
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp run-*.sh $CRAFT_PART_INSTALL/bin/
+      cp api.py $CRAFT_PART_INSTALL/
+      chmod +x $CRAFT_PART_INSTALL/bin/run-*.sh
+      rm -f $CRAFT_PART_INSTALL/etc/nginx/sites-enabled/default
+      # nginx.conf is in the part's source directory
+      cp $CRAFT_PART_SRC/nginx.conf $CRAFT_PART_INSTALL/etc/nginx/sites-available/photobooth-api
+      ln -s ../sites-available/photobooth-api $CRAFT_PART_INSTALL/etc/nginx/sites-enabled/photobooth-api
+
+apps:
+  gunicorn:
+    command: bin/run-gunicorn.sh
+    daemon: simple
+    plugs: [network, network-bind]
+
+  nginx:
+    command: bin/run-nginx.sh
+    daemon: simple
+    plugs: [network, network-bind]
