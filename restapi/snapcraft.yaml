@@ -10,29 +10,34 @@ description: |
 grade: devel
 confinement: strict
 
+layout:
+  /etc/nginx/mime.types:
+    bind-file: $SNAP/etc/nginx/mime.types
+
 parts:
   api:
     plugin: python
     source: .
-    requirements: requirements.txt
+    python-requirements: [requirements.txt]
     stage-packages:
       - nginx
-    override-prime: |
+    override-build: |
       set -eux
-      snapcraftctl prime
-      chmod +x $SNAPCRAFT_PRIME/bin/run-nginx.sh
-      rm -f $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/default
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp run-*.sh $CRAFT_PART_INSTALL/bin/
+      cp api.py $CRAFT_PART_INSTALL/
+      chmod +x $CRAFT_PART_INSTALL/bin/run-*.sh
+      rm -f $CRAFT_PART_INSTALL/etc/nginx/sites-enabled/default
       # nginx.conf is in the part's source directory
-      cp $SNAPCRAFT_PART_SRC/nginx.conf $SNAPCRAFT_PRIME/etc/nginx/sites-available/photobooth-api
-      ln -s ../sites-available/photobooth-api $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/photobooth-api
-    organize:
-      run-nginx.sh: bin/run-nginx.sh
+      cp $CRAFT_PART_SRC/nginx.conf $CRAFT_PART_INSTALL/etc/nginx/sites-available/photobooth-api
+      ln -s ../sites-available/photobooth-api $CRAFT_PART_INSTALL/etc/nginx/sites-enabled/photobooth-api
 
 apps:
   gunicorn:
-    command: bin/gunicorn --workers 3 --bind 127.0.0.1:8001 api:app
+    command: bin/run-gunicorn.sh
     daemon: simple
-    plugs: [network]
+    plugs: [network, network-bind]
 
   nginx:
     command: bin/run-nginx.sh
