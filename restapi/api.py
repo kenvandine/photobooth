@@ -14,9 +14,11 @@ app = Flask(__name__)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
-# Default configuration
-app.config.setdefault('UPLOAD_FOLDER', 'api_photos')
-app.config.setdefault('METADATA_FOLDER', 'photo_metadata')
+# Get the base directory from the environment variable, default to current dir if not set
+# The environment variable 'SNAP_COMMON' is used for the base directory.
+snap_common_dir = os.environ.get('SNAP_COMMON', '.')
+app.config['UPLOAD_FOLDER'] = os.path.join(snap_common_dir, 'api_photos')
+app.config['METADATA_FOLDER'] = os.path.join(snap_common_dir, 'photo_metadata')
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 @app.before_request
