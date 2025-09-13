@@ -1,0 +1,37 @@
+name: photobooth-api
+base: core24
+version: '0.1'
+summary: A RESTful API for the photobooth application
+description: |
+  A RESTful Flask API for managing photo uploads, storage, and retrieval.
+  This API provides comprehensive photo management functionality including
+  file uploads, metadata storage, search capabilities, and CRUD operations.
+
+grade: devel
+confinement: strict
+
+parts:
+  api:
+    plugin: python
+    source: .
+    requirements: [requirements.txt]
+    stage-packages:
+      - nginx
+    override-prime: |
+      set -eux
+      snapcraftctl prime
+      rm -f $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/default
+      # nginx.conf is in the part's source directory
+      cp $SNAPCRAFT_PART_SRC/nginx.conf $SNAPCRAFT_PRIME/etc/nginx/sites-available/photobooth-api
+      ln -s ../sites-available/photobooth-api $SNAPCRAFT_PRIME/etc/nginx/sites-enabled/photobooth-api
+
+apps:
+  gunicorn:
+    command: bin/gunicorn --workers 3 --bind 127.0.0.1:8001 api:app
+    daemon: simple
+    plugs: [network]
+
+  nginx:
+    command: usr/sbin/nginx -c $SNAP/etc/nginx/nginx.conf -g "daemon off;"
+    daemon: simple
+    plugs: [network, network-bind]
