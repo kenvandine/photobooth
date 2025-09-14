@@ -384,6 +384,7 @@ class CameraApp(App):
             camera_name (str): The name of the camera to switch to.
         """
         selected_index = self.available_cameras[camera_name]
+        self.current_camera_index = selected_index
         logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
 
         # Release the previous camera capture if it exists
@@ -391,14 +392,14 @@ class CameraApp(App):
             self.capture.release()
 
         # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index)
-        self.resolution_selector.values = resolutions
+        detected_resolutions = self.get_supported_resolutions(selected_index)
+        # self.resolution_selector.values will be populated in open_camera_selector
         self.capture = cv2.VideoCapture(selected_index)
         self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
-        if resolutions:
-            self.resolution_selector.text = resolutions[-1]  # Default to highest
-            w, h = map(int, resolutions[-1].split('x'))
+        if detected_resolutions:
+            self.resolution_selector.text = detected_resolutions[-1]  # Default to highest
+            w, h = map(int, detected_resolutions[-1].split('x'))
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Set camera {selected_index} to {w}x{h}")
@@ -438,6 +439,22 @@ class CameraApp(App):
         if self.resolution_selector.parent:
             # Ensure the widget is not attached to another parent
             self.resolution_selector.parent.remove_widget(self.resolution_selector)
+
+        # Populate the spinner with all standard resolutions, marking detected ones
+        if hasattr(self, 'current_camera_index'):
+            detected_resolutions = self.get_supported_resolutions(self.current_camera_index)
+        else:
+            detected_resolutions = []
+
+        display_resolutions = []
+        for w, h in STANDARD_RESOLUTIONS:
+            res_str = f"{w}x{h}"
+            if res_str in detected_resolutions:
+                display_resolutions.append(f"{res_str} (detected)")
+            else:
+                display_resolutions.append(res_str)
+        self.resolution_selector.values = display_resolutions
+
         content.add_widget(self.resolution_selector)
 
         def cleanup_on_dismiss(popup_instance):
@@ -492,10 +509,16 @@ class CameraApp(App):
         """
         if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
             return
-        w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-        logging.info(f"Resolution changed to {w}x{h}")
+
+        # Parse the resolution string, removing the " (detected)" suffix if present
+        resolution_str = text.split(' ')[0]
+        try:
+            w, h = map(int, resolution_str.split('x'))
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            logging.info(f"Resolution changed to {w}x{h}")
+        except ValueError:
+            logging.error(f"Invalid resolution string: {text}")
 
     def _apply_overlay(self, frame):
         """
