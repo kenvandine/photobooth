@@ -36,6 +36,7 @@ from datetime import datetime
 import logging
 import subprocess
 import re
+import time
 import requests
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
@@ -225,6 +226,7 @@ class CameraApp(App):
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            time.sleep(0.1)  # Allow driver time to settle
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
