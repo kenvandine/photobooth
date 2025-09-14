@@ -1,0 +1,6 @@
+#!/bin/sh -e
+#
+#
+snapctl set url=""
+snapctl set voice=false
+snapctl set banner=""
