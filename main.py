@@ -174,7 +174,7 @@ class CameraApp(App):
                     if match:
                         index = int(match.group(1))
                         # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+                        cap = cv2.VideoCapture(index)
                         if cap.isOpened():
                             cameras[current_camera_name] = index
                             cap.release()
@@ -182,7 +182,7 @@ class CameraApp(App):
             # Fallback for non-Linux systems or if v4l2-ctl is not installed
             logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
             for i in range(10):  # Check first 10 indices
-                cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+                cap = cv2.VideoCapture(i)
                 if cap.isOpened():
                     cameras[f"Camera {i}"] = i
                     cap.release()
@@ -204,12 +204,23 @@ class CameraApp(App):
                   supported resolution (e.g., "1920x1080").
         """
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
+        cap = cv2.VideoCapture(camera_index)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
+
+        # Get default resolution to ensure at least one is available
+        default_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        default_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if default_w > 0 and default_h > 0:
+            default_res_str = f"{default_w}x{default_h}"
+            supported_resolutions.append(default_res_str)
+
         # Test a list of standard resolutions
         for w, h in STANDARD_RESOLUTIONS:
+            res_str = f"{w}x{h}"
+            if res_str in supported_resolutions:
+                continue  # Skip if already added
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -376,19 +387,18 @@ class CameraApp(App):
         # Update resolutions and set the camera to the highest available one
         resolutions = self.get_supported_resolutions(selected_index)
         self.resolution_selector.values = resolutions
+        self.capture = cv2.VideoCapture(selected_index)
+        self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+
         if resolutions:
             self.resolution_selector.text = resolutions[-1]  # Default to highest
             w, h = map(int, resolutions[-1].split('x'))
-            self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
-            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Set camera {selected_index} to {w}x{h}")
         else:
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
-            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
             self.resolution_selector.text = 'Default'
 
     def on_camera_select(self, camera_name):
