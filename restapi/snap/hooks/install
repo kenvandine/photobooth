@@ -1,0 +1,6 @@
+#!/bin/sh -e
+#
+#
+snapctl set ssl.enabled=false
+snapctl set ssl.domain=""
+snapctl set ssl.email=""

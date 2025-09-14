@@ -19,10 +19,11 @@ parts:
     plugin: python
     source: .
     python-requirements: [requirements.txt]
+    python-packages:
+      - certbot-nginx
     stage-packages:
       - nginx
       - certbot
-      - python3-certbot-nginx
     override-build: |
       set -eux
       craftctl default
