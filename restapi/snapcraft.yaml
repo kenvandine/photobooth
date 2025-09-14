@@ -21,6 +21,8 @@ parts:
     python-requirements: [requirements.txt]
     stage-packages:
       - nginx
+      - certbot
+      - python3-certbot-nginx
     override-build: |
       set -eux
       craftctl default
@@ -47,3 +49,13 @@ apps:
     command: bin/run-nginx.sh
     daemon: simple
     plugs: [network, network-bind]
+    config:
+      ssl-enabled:
+        type: boolean
+        default: false
+      domain:
+        type: string
+        default: ""
+      email:
+        type: string
+        default: ""
