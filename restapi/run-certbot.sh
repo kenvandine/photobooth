@@ -2,18 +2,18 @@
 set -e
 
 # Get snap settings
-SSL_ENABLED=$(snapctl get nginx.ssl-enabled || echo "false")
-DOMAIN=$(snapctl get nginx.domain || echo "")
-EMAIL=$(snapctl get nginx.email || echo "")
+SSL_ENABLED=$(snapctl get ssl.enabled || echo "false")
+DOMAIN=$(snapctl get ssl.domain || echo "")
+EMAIL=$(snapctl get ssl.email || echo "")
 
 if [ "$SSL_ENABLED" = "true" ]; then
   if [ -z "$DOMAIN" ]; then
-    echo "SSL is enabled, but 'nginx.domain' is not set. Please set it using 'snap set photobooth-api nginx.domain=<your-domain>'."
+    echo "SSL is enabled, but 'ssl.domain' is not set. Please set it using 'snap set photobooth-api ssl.domain=<your-domain>'."
     exit 1
   fi
 
   if [ -z "$EMAIL" ]; then
-    echo "SSL is enabled, but 'nginx.email' is not set. Please set it using 'snap set photobooth-api nginx.email=<your-email>'."
+    echo "SSL is enabled, but 'ssl.email' is not set. Please set it using 'snap set photobooth-api ssl.email=<your-email>'."
     exit 1
   fi
 
