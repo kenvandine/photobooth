@@ -36,11 +36,13 @@ from datetime import datetime
 import logging
 import subprocess
 import re
+import requests
 from voice_listener import VoiceListener
 logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
+PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL', 'http://localhost:5000/api/photos')
 # --- END CONFIGURATION ---
 
 # A list of common resolutions to test
@@ -557,7 +559,7 @@ class CameraApp(App):
 
     def _take_and_save_photo(self, *args):
         """
-        Captures a photo and saves it to the 'photos' directory.
+        Captures a photo, saves it, and uploads it to the backend.
         """
         if not hasattr(self, 'capture') or not self.capture.isOpened():
             logging.error("No camera is active to take a photo.")
@@ -574,6 +576,23 @@ class CameraApp(App):
             cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
+            # Upload the photo to the backend
+            self._upload_photo(filename)
+
+    def _upload_photo(self, filename):
+        """
+        Uploads the photo to the backend API.
+        """
+        try:
+            with open(filename, 'rb') as f:
+                files = {'file': (os.path.basename(filename), f, 'image/png')}
+                response = requests.post(PHOTOBOOTH_URL, files=files)
+                if response.status_code == 201:
+                    logging.info(f"Photo uploaded successfully: {response.json()}")
+                else:
+                    logging.error(f"Failed to upload photo: {response.text}")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error uploading photo: {e}")
 
     def on_stop(self):
         """
