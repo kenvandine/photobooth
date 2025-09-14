@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
-PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL', 'http://localhost:5000/api/photos')
+PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
 # --- END CONFIGURATION ---
 
 # A list of common resolutions to test
@@ -576,8 +576,11 @@ class CameraApp(App):
             cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
-            # Upload the photo to the backend
-            self._upload_photo(filename)
+
+            # Upload the photo to the backend if URL is set
+            if PHOTOBOOTH_URL:
+                logging.info("Uploading photo to server")
+                self._upload_photo(filename)
 
     def _upload_photo(self, filename):
         """
