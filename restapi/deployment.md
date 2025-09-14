@@ -60,3 +60,37 @@ To remove the snap package and all its data, you can use the `snap remove` comma
 ```bash
 sudo snap remove photobooth-api
 ```
+
+## Enabling SSL (HTTPS)
+
+The snap supports enabling SSL using Let's Encrypt and Certbot. This allows you to serve the API over HTTPS.
+
+### Prerequisites
+
+- You must have a registered domain name that points to the public IP address of the server where the snap is installed.
+- The server's firewall must allow traffic on ports 80 and 443.
+
+### Configuration
+
+To enable SSL, you need to set the following snap configuration options:
+
+- `nginx.ssl-enabled`: Set to `true` to enable SSL.
+- `nginx.domain`: Your fully qualified domain name (e.g., `api.example.com`).
+- `nginx.email`: Your email address, for important notifications from Let's Encrypt.
+
+You can set these options using the `snap set` command:
+
+```bash
+sudo snap set photobooth-api nginx.ssl-enabled=true
+sudo snap set photobooth-api nginx.domain="api.example.com"
+sudo snap set photobooth-api nginx.email="your-email@example.com"
+```
+
+After setting these options, the `nginx` service will automatically try to obtain an SSL certificate from Let's Encrypt. You can check the status of the service and the logs for any issues:
+
+```bash
+snap services photobooth-api
+sudo snap logs photobooth-api.nginx
+```
+
+If successful, the API will be available at `https://api.example.com`. The snap will also automatically handle the renewal of the certificate.
