@@ -39,6 +39,8 @@ parts:
       sed -i -e 's|/var/log/nginx/access.log|/var/snap/photobooth-api/common/nginx-access.log|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
       sed -i -e 's|/run/nginx.pid|/var/snap/photobooth-api/common/nginx.pid|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
       sed -i -e 's|www-data|root|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
+      sed -i -e 's|include /etc/nginx/mime.types;|include /var/snap/photobooth-api/common/etc/nginx/mime.types;|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
+      sed -i -e 's|/etc/nginx|/var/snap/photobooth-api/common/etc/nginx|g' $CRAFT_PART_INSTALL/lib/python3.12/site-packages/certbot_nginx/_internal/constants.py
 
 apps:
   gunicorn:

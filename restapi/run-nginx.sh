@@ -13,6 +13,9 @@ sed -i -e "s|/etc/nginx/sites-enabled/|/var/snap/photobooth-api/common/etc/nginx
 # Copy the site-specific config to the writable location
 cp $SNAP/etc/nginx/sites-available/photobooth-api $SNAP_COMMON/etc/nginx/sites-available/photobooth-api
 
+# Copy mime.types
+cp $SNAP/etc/nginx/mime.types $SNAP_COMMON/etc/nginx/mime.types
+
 # Create the symlink to the site-specific config in the writable location
 ln -sf ../sites-available/photobooth-api $SNAP_COMMON/etc/nginx/sites-enabled/photobooth-api
 
