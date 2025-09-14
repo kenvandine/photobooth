@@ -174,7 +174,7 @@ class CameraApp(App):
                     if match:
                         index = int(match.group(1))
                         # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index)
+                        cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
                         if cap.isOpened():
                             cameras[current_camera_name] = index
                             cap.release()
@@ -182,7 +182,7 @@ class CameraApp(App):
             # Fallback for non-Linux systems or if v4l2-ctl is not installed
             logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
             for i in range(10):  # Check first 10 indices
-                cap = cv2.VideoCapture(i)
+                cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
                 if cap.isOpened():
                     cameras[f"Camera {i}"] = i
                     cap.release()
@@ -204,7 +204,7 @@ class CameraApp(App):
                   supported resolution (e.g., "1920x1080").
         """
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
@@ -379,14 +379,16 @@ class CameraApp(App):
         if resolutions:
             self.resolution_selector.text = resolutions[-1]  # Default to highest
             w, h = map(int, resolutions[-1].split('x'))
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
+            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Set camera {selected_index} to {w}x{h}")
         else:
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
+            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
             self.resolution_selector.text = 'Default'
 
     def on_camera_select(self, camera_name):
