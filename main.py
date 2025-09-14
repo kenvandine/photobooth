@@ -37,7 +37,9 @@ import logging
 import subprocess
 import re
 import requests
-from voice_listener import VoiceListener
+VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
+if VOICE_ENABLED:
+    from voice_listener import VoiceListener
 logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---

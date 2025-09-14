@@ -1,0 +1,11 @@
+#!/bin/sh -e
+
+_banner="$(snapctl get banner)"
+
+if [ -f "$_banner" ]; then
+  echo "File '$_banner' exists."
+  cp $_banner $SNAP_USER_COMMON/$(basename $_banner)
+  snapctl set banner=$SNAP_USER_COMMON/$(basename $_banner)
+else
+  echo "File '$_banner' does not exist."
+fi

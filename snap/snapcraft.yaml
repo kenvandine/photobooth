@@ -12,25 +12,39 @@ apps:
   photo-booth:
     command: bin/launcher
     extensions: [gnome]
+    environment:
+      PYTHONPATH: $SNAP/lib/python3.12/site-packages:$PYTHONPATH
     plugs:
+      - home
       - camera
       - network
+      - audio-record
+      - audio-playback
 
 parts:
   photobooth:
     plugin: python
     source: .
     override-build: |
-      snapcraftctl build
-      python3 create_assets.py
-    build-packages:
-      - libv4l-dev
+      python3 -m venv venv_photobooth
+      source venv_photobooth/bin/activate
+      pip3 install -r requirements.txt
+      cp -a venv_photobooth/* $CRAFT_PART_INSTALL/
+      cp *.py $CRAFT_PART_INSTALL/
+      cp -rp assets $CRAFT_PART_INSTALL/
+
+  deps:
+    plugin: nil
     stage-packages:
       - v4l-utils
-      - libgl1
-      - libgl1-mesa-glx
-    python-packages:
-      - -r requirements.txt
+      - libportaudio2
+
+    prime:
+      - usr/bin/v4l2*
+      - usr/lib/*/libasound*.so.*
+      - usr/lib/*/libjack*.so.*
+      - usr/lib/*/libportaudio.so.*
+      - usr/lib/*/libv4l2rds.so*
 
   launcher:
     plugin: dump
