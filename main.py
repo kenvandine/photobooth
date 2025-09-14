@@ -191,44 +191,48 @@ class CameraApp(App):
 
     def get_supported_resolutions(self, camera_index):
         """
-        Determines the supported resolutions for a given camera.
+        Determines the supported resolutions for a given camera by testing a
+        predefined list of common resolutions.
 
-        It checks a predefined list of common resolutions against the camera's
-        capabilities.
+        This method is more robust for drivers that don't handle rapid state
+        changes well, as it re-initializes the camera for each tested resolution.
 
         Args:
             camera_index (int): The index of the camera to check.
 
         Returns:
-            list: A list of strings, where each string represents a
-                  supported resolution (e.g., "1920x1080").
+            list: A sorted list of unique supported resolution strings.
         """
-        supported_resolutions = []
+        resolutions = set()
+
+        # First, get the default resolution without re-initializing
         cap = cv2.VideoCapture(camera_index)
-        if not cap.isOpened():
+        if cap.isOpened():
+            default_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            default_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if default_w > 0 and default_h > 0:
+                resolutions.add(f"{default_w}x{default_h}")
+            cap.release()
+        else:
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
 
-        # Get default resolution to ensure at least one is available
-        default_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        default_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        if default_w > 0 and default_h > 0:
-            default_res_str = f"{default_w}x{default_h}"
-            supported_resolutions.append(default_res_str)
-
-        # Test a list of standard resolutions
+        # Test standard resolutions by re-initializing the camera each time
         for w, h in STANDARD_RESOLUTIONS:
-            res_str = f"{w}x{h}"
-            if res_str in supported_resolutions:
-                continue  # Skip if already added
+            cap = cv2.VideoCapture(camera_index)
+            if not cap.isOpened():
+                continue  # Skip if camera can't be opened
+
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # If the camera accepts the resolution, add it to the list
+            cap.release()
+
             if actual_w == w and actual_h == h:
-                supported_resolutions.append(f"{w}x{h}")
-        cap.release()
+                resolutions.add(f"{w}x{h}")
+
+        supported_resolutions = sorted(list(resolutions), key=lambda r: int(r.split('x')[0]))
         logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
         return supported_resolutions
 
