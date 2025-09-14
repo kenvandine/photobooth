@@ -400,6 +400,7 @@ class CameraApp(App):
         if detected_resolutions:
             self.resolution_selector.text = detected_resolutions[-1]  # Default to highest
             w, h = map(int, detected_resolutions[-1].split('x'))
+            self.current_width, self.current_height = w, h
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Set camera {selected_index} to {w}x{h}")
@@ -407,6 +408,9 @@ class CameraApp(App):
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
             self.resolution_selector.text = 'Default'
+            # Get the actual default resolution from the camera
+            self.current_width = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.current_height = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     def on_camera_select(self, camera_name):
         """
@@ -514,6 +518,7 @@ class CameraApp(App):
         resolution_str = text.split(' ')[0]
         try:
             w, h = map(int, resolution_str.split('x'))
+            self.current_width, self.current_height = w, h
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Resolution changed to {w}x{h}")
@@ -607,6 +612,13 @@ class CameraApp(App):
         if not hasattr(self, 'capture') or not self.capture.isOpened():
             logging.error("No camera is active to take a photo.")
             return
+
+        # Force-set the resolution right before capture to handle unreliable drivers
+        if hasattr(self, 'current_width') and hasattr(self, 'current_height'):
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.current_width)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.current_height)
+            logging.info(f"Force-set resolution to {self.current_width}x{self.current_height} before capture.")
+
         # Create the 'photos' directory if it doesn't exist
         if not os.path.exists("photos"):
             os.makedirs("photos")
