@@ -237,6 +237,7 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        Window.fullscreen = True
         self.birthday_frame = None
         self.frame_files = sorted(glob.glob('assets/frames/*.png'))
         self.current_frame_index = 0
