@@ -45,7 +45,27 @@ logging.basicConfig(level=logging.INFO)
 # --- CONFIGURATION ---
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
 PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
-# --- END CONFIGURATION ---
+
+# --- VIDEO BACKEND SELECTION ---
+# Allows specifying a video backend for OpenCV via an environment variable.
+# Supported values: V4L2, FFMPEG, DSHOW
+OPENCV_BACKEND_NAME = os.environ.get('OPENCV_VIDEO_BACKEND')
+OPENCV_BACKENDS = {
+    'V4L2': cv2.CAP_V4L2,
+    'FFMPEG': cv2.CAP_FFMPEG,
+    'DSHOW': cv2.CAP_DSHOW,
+}
+VIDEO_CAPTURE_API = OPENCV_BACKENDS.get(OPENCV_BACKEND_NAME)
+
+if VIDEO_CAPTURE_API is not None:
+    logging.info(f"Using OpenCV backend: {OPENCV_BACKEND_NAME}")
+    def create_video_capture(index):
+        return cv2.VideoCapture(index, VIDEO_CAPTURE_API)
+else:
+    logging.info("Using default OpenCV backend.")
+    def create_video_capture(index):
+        return cv2.VideoCapture(index)
+# --- END VIDEO BACKEND SELECTION ---
 
 # A list of common resolutions to test
 STANDARD_RESOLUTIONS = [
@@ -174,7 +194,7 @@ class CameraApp(App):
                     if match:
                         index = int(match.group(1))
                         # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index)
+                        cap = create_video_capture(index)
                         if cap.isOpened():
                             cameras[current_camera_name] = index
                             cap.release()
@@ -182,7 +202,7 @@ class CameraApp(App):
             # Fallback for non-Linux systems or if v4l2-ctl is not installed
             logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
             for i in range(10):  # Check first 10 indices
-                cap = cv2.VideoCapture(i)
+                cap = create_video_capture(i)
                 if cap.isOpened():
                     cameras[f"Camera {i}"] = i
                     cap.release()
@@ -204,7 +224,7 @@ class CameraApp(App):
                   supported resolution (e.g., "1920x1080").
         """
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        cap = create_video_capture(camera_index)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
@@ -379,14 +399,14 @@ class CameraApp(App):
         if resolutions:
             self.resolution_selector.text = resolutions[-1]  # Default to highest
             w, h = map(int, resolutions[-1].split('x'))
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = create_video_capture(selected_index)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
             logging.info(f"Set camera {selected_index} to {w}x{h}")
         else:
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = create_video_capture(selected_index)
             self.resolution_selector.text = 'Default'
 
     def on_camera_select(self, camera_name):
