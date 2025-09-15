@@ -18,16 +18,17 @@ parts:
   frontend:
     plugin: npm
     source: react_frontend
-    npm-node-version: "20.10.0"
+    build-packages:
+      - npm
     override-build: |
       set -eux
+      npm install
       npm run build
-      mkdir -p $CRAFT_PART_INSTALL/
-      mv build/* $CRAFT_PART_INSTALL/
+      mkdir -p $CRAFT_PART_INSTALL/www
+      cp -rp build/* $CRAFT_PART_INSTALL/www/
   api:
     plugin: python
     source: .
-    after: [frontend]
     python-requirements: [requirements.txt]
     stage-packages:
       - nginx
@@ -35,8 +36,6 @@ parts:
       set -eux
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/bin
-      mkdir -p $CRAFT_PART_INSTALL/www
-      cp -r $CRAFT_PROJECT_DIR/parts/frontend/install/* $CRAFT_PART_INSTALL/www/
       cp run-*.sh $CRAFT_PART_INSTALL/bin/
       cp api.py $CRAFT_PART_INSTALL/
       chmod +x $CRAFT_PART_INSTALL/bin/run-*.sh
