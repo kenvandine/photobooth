@@ -48,12 +48,13 @@ PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
 
 # --- VIDEO BACKEND SELECTION ---
 # Allows specifying a video backend for OpenCV via an environment variable.
-# Supported values: V4L2, FFMPEG, DSHOW
+# Supported values: V4L2, FFMPEG, DSHOW, GSTREAMER
 OPENCV_BACKEND_NAME = os.environ.get('OPENCV_VIDEO_BACKEND')
 OPENCV_BACKENDS = {
     'V4L2': cv2.CAP_V4L2,
     'FFMPEG': cv2.CAP_FFMPEG,
     'DSHOW': cv2.CAP_DSHOW,
+    'GSTREAMER': cv2.CAP_GSTREAMER,
 }
 VIDEO_CAPTURE_API = OPENCV_BACKENDS.get(OPENCV_BACKEND_NAME)
 
