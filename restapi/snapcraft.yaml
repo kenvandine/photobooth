@@ -15,9 +15,19 @@ layout:
     bind: $SNAP/etc/nginx
 
 parts:
+  frontend:
+    plugin: npm
+    source: react_frontend
+    npm-node-version: "20.10.0"
+    override-build: |
+      set -eux
+      npm run build
+      mkdir -p $CRAFT_PART_INSTALL/
+      mv build/* $CRAFT_PART_INSTALL/
   api:
     plugin: python
     source: .
+    after: [frontend]
     python-requirements: [requirements.txt]
     stage-packages:
       - nginx
@@ -25,6 +35,8 @@ parts:
       set -eux
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/bin
+      mkdir -p $CRAFT_PART_INSTALL/www
+      cp -r $CRAFT_PROJECT_DIR/parts/frontend/install/* $CRAFT_PART_INSTALL/www/
       cp run-*.sh $CRAFT_PART_INSTALL/bin/
       cp api.py $CRAFT_PART_INSTALL/
       chmod +x $CRAFT_PART_INSTALL/bin/run-*.sh
@@ -38,12 +50,12 @@ parts:
       sed -i -e 's|www-data|root|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
 
 apps:
-  gunicorn:
+  api:
     command: bin/run-gunicorn.sh
     daemon: simple
     plugs: [network, network-bind]
 
-  nginx:
+  frontend:
     command: bin/run-nginx.sh
     daemon: simple
     plugs: [network, network-bind]
