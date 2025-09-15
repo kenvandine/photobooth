@@ -213,6 +213,7 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        self.camera_is_open = False
         self.last_frame = None
         self.birthday_frame = None
         self.frame_files = sorted(glob.glob('assets/frames/*.png'))
@@ -264,6 +265,7 @@ class CameraApp(App):
         button_layout.add_widget(Widget())  # Left spacer
         self.capture_button = RoundButton(size_hint=(None, None), size=(80, 80))
         self.capture_button.bind(on_press=self.capture_photo)
+        self.capture_button.disabled = True  # Disable until first frame is received
         button_layout.add_widget(self.capture_button)
         button_layout.add_widget(Widget())  # Right spacer
         main_layout.add_widget(button_layout)
@@ -353,29 +355,36 @@ class CameraApp(App):
         logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
 
         # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture.is_open:
+        if hasattr(self, 'capture') and self.camera_is_open:
             self.capture.close()
+            self.camera_is_open = False
             if hasattr(self, 'frame_iterator'):
                 del self.frame_iterator
 
         # Update resolutions and set the camera to the highest available one
         resolutions = self.get_supported_resolutions(selected_index)
         self.resolution_selector.values = resolutions
-        if resolutions:
-            self.resolution_selector.text = resolutions[-1]  # Default to highest
-            w, h = map(int, resolutions[-1].split('x'))
+        try:
+            if resolutions:
+                self.resolution_selector.text = resolutions[-1]  # Default to highest
+                w, h = map(int, resolutions[-1].split('x'))
 
-            self.capture = Device.from_id(selected_index)
-            # Prefer MJPEG format
-            self.capture.video_capture.set_format(width=w, height=h, pixelformat='MJPG')
-            self.frame_iterator = iter(self.capture)
-            logging.info(f"Set camera {selected_index} to {w}x{h} with MJPEG format")
-        else:
-            # Fallback if no specific resolutions are confirmed
-            logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = Device.from_id(selected_index)
-            self.frame_iterator = iter(self.capture)
-            self.resolution_selector.text = 'Default'
+                self.capture = Device.from_id(selected_index)
+                # Prefer MJPEG format
+                self.capture.video_capture.set_format(width=w, height=h, pixelformat='MJPG')
+                self.frame_iterator = iter(self.capture)
+                self.camera_is_open = True
+                logging.info(f"Set camera {selected_index} to {w}x{h} with MJPEG format")
+            else:
+                # Fallback if no specific resolutions are confirmed
+                logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
+                self.capture = Device.from_id(selected_index)
+                self.frame_iterator = iter(self.capture)
+                self.camera_is_open = True
+                self.resolution_selector.text = 'Default'
+        except Exception as e:
+            logging.error(f"Failed to open camera {selected_index}: {e}")
+            self.camera_is_open = False
 
 
     def on_camera_select(self, camera_name):
@@ -461,7 +470,7 @@ class CameraApp(App):
             spinner: The spinner instance.
             text (str): The selected resolution string (e.g., "1920x1080").
         """
-        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.is_open:
+        if text == 'Default' or not hasattr(self, 'capture') or not self.camera_is_open:
             return
         w, h = map(int, text.split('x'))
         self.capture.video_capture.set_format(width=w, height=h, pixelformat='MJPG')
@@ -495,7 +504,7 @@ class CameraApp(App):
         Args:
             dt (float): The time elapsed since the last update.
         """
-        if not hasattr(self, 'capture') or not self.capture.is_open:
+        if not hasattr(self, 'capture') or not self.camera_is_open:
             return
 
         try:
@@ -507,6 +516,8 @@ class CameraApp(App):
 
             if frame is not None:
                 self.last_frame = frame  # Store for photo capture
+                if self.capture_button.disabled:
+                    self.capture_button.disabled = False
                 frame_with_overlay = self._apply_overlay(frame)
 
                 # Convert the BGR frame from OpenCV to RGB
@@ -524,8 +535,10 @@ class CameraApp(App):
                 self.camera_view.texture = image_texture
         except StopIteration:
             logging.warning("End of frame stream.")
+            self.camera_is_open = False
         except Exception as e:
             logging.error(f"Failed to get or process frame: {e}")
+            self.camera_is_open = False
 
     def do_flash(self):
         """Triggers a flash animation on the screen."""
@@ -563,37 +576,26 @@ class CameraApp(App):
         """
         Captures a photo, saves it, and uploads it to the backend.
         """
-        if not hasattr(self, 'capture') or not self.capture.is_open:
-            logging.error("No camera is active to take a photo.")
+        if self.last_frame is None:
+            logging.error("No frame available to take a photo.")
             return
 
-        try:
-            frame_data = next(self.frame_iterator)
-            frame = cv2.imdecode(np.frombuffer(frame_data, np.uint8), cv2.IMREAD_COLOR)
+        # Create the 'photos' directory if it doesn't exist
+        if not os.path.exists("photos"):
+            os.makedirs("photos")
 
-            if frame is not None:
-                # Create the 'photos' directory if it doesn't exist
-                if not os.path.exists("photos"):
-                    os.makedirs("photos")
+        # Apply the overlay before saving
+        frame_with_overlay = self._apply_overlay(self.last_frame)
+        now = datetime.now()
+        filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
+        cv2.imwrite(filename, frame_with_overlay)
+        logging.info(f"Photo saved as {filename}")
+        self.do_flash()
 
-                # Apply the overlay before saving
-                frame_with_overlay = self._apply_overlay(frame)
-                now = datetime.now()
-                filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-                cv2.imwrite(filename, frame_with_overlay)
-                logging.info(f"Photo saved as {filename}")
-                self.do_flash()
-
-                # Upload the photo to the backend if URL is set
-                if PHOTOBOOTH_URL:
-                    logging.info("Uploading photo to server")
-                    self._upload_photo(filename)
-            else:
-                logging.error("Failed to decode frame for photo capture.")
-        except StopIteration:
-            logging.error("End of frame stream, cannot capture photo.")
-        except Exception as e:
-            logging.error(f"Failed to capture photo: {e}")
+        # Upload the photo to the backend if URL is set
+        if PHOTOBOOTH_URL:
+            logging.info("Uploading photo to server")
+            self._upload_photo(filename)
 
     def _upload_photo(self, filename):
         """
@@ -617,8 +619,9 @@ class CameraApp(App):
         """
         if hasattr(self, 'voice_listener') and self.voice_listener:
             self.voice_listener.stop()
-        if hasattr(self, 'capture') and self.capture.is_open:
+        if hasattr(self, 'capture') and self.camera_is_open:
             self.capture.close()
+            self.camera_is_open = False
             logging.info("Camera released.")
 
 if __name__ == '__main__':
