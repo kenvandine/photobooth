@@ -19,10 +19,9 @@ const PhotoSlideshow = () => {
       }
       const data = await response.json();
       
-      // Assuming the API returns an array of photo objects with an 'id' field
-      // and we can access photos via /api/photos/{id}
-      if (Array.isArray(data) && data.length > 0) {
-        setPhotos(data);
+      // The API returns an object with a 'photos' array
+      if (data && Array.isArray(data.photos) && data.photos.length > 0) {
+        setPhotos(data.photos);
         setError(null);
       } else {
         setPhotos([]);
@@ -220,7 +219,7 @@ const PhotoSlideshow = () => {
             onClick={() => goToSlide(index)}
           >
             <img
-              src={`/api/photos/${photo.id}`}
+              src={`/api/photos/${photo.id}/file`}
               alt={`Thumbnail ${index + 1}`}
               onError={(e) => {
                 e.target.src = '/placeholder-thumbnail.jpg';
