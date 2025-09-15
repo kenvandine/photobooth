@@ -34,9 +34,9 @@ import random
 import glob
 from datetime import datetime
 import logging
-import subprocess
-import re
 import requests
+import numpy as np
+from v4l2py import Device
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -152,72 +152,54 @@ class CameraApp(App):
 
     def get_available_cameras(self):
         """
-        Detects and lists available video cameras on the system.
-
-        Tries to use `v4l2-ctl` for more descriptive camera names on Linux.
-        If `v4l2-ctl` is not available or fails, it falls back to a simple
-        index-based scan.
-
+        Detects and lists available video cameras on the system using v4l2py.
         Returns:
             dict: A dictionary mapping camera names to their device indices.
         """
         cameras = {}
-        try:
-            # Use v4l2-ctl to get a list of cameras with descriptive names
-            output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
-            current_camera_name = ""
-            for line in output.splitlines():
-                if not line.startswith('\t'):
-                    current_camera_name = line.strip().split(' (')[0]
-                elif '/dev/video' in line:
-                    match = re.search(r'/dev/video(\d+)', line)
-                    if match:
-                        index = int(match.group(1))
-                        # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index)
-                        if cap.isOpened():
-                            cameras[current_camera_name] = index
-                            cap.release()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # Fallback for non-Linux systems or if v4l2-ctl is not installed
-            logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
-            for i in range(10):  # Check first 10 indices
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    cameras[f"Camera {i}"] = i
-                    cap.release()
+        for i in range(10):  # Check first 10 indices
+            try:
+                device = Device.from_id(i)
+                device.open()
+                camera_name = device.info.card
+                cameras[camera_name] = i
+                device.close()
+            except Exception as e:
+                # This index is not a camera or not available
+                logging.debug(f"Could not open camera index {i}: {e}")
+                continue
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
     def get_supported_resolutions(self, camera_index):
         """
-        Determines the supported resolutions for a given camera.
-
-        It checks a predefined list of common resolutions against the camera's
-        capabilities.
-
+        Determines the supported resolutions for a given camera using v4l2py.
         Args:
             camera_index (int): The index of the camera to check.
-
         Returns:
             list: A list of strings, where each string represents a
                   supported resolution (e.g., "1920x1080").
         """
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
-        if not cap.isOpened():
-            logging.error(f"Could not open camera index {camera_index} to get resolutions.")
-            return []
-        # Test a list of standard resolutions
-        for w, h in STANDARD_RESOLUTIONS:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # If the camera accepts the resolution, add it to the list
-            if actual_w == w and actual_h == h:
-                supported_resolutions.append(f"{w}x{h}")
-        cap.release()
+        try:
+            with Device.from_id(camera_index) as device:
+                # We prefer MJPEG format as it's compressed and easy to decode
+                formats = [f for f in device.video_capture.formats if f.pixelformat == 'MJPG']
+                if not formats:
+                    # Fallback to any other available format if MJPEG is not supported
+                    formats = device.video_capture.formats
+
+                for fmt in formats:
+                    for size in fmt.sizes:
+                        res_str = f"{size.width}x{size.height}"
+                        if res_str not in supported_resolutions:
+                            supported_resolutions.append(res_str)
+        except Exception as e:
+            logging.error(f"Could not get resolutions for camera index {camera_index}: {e}")
+
+        # Sort resolutions from lowest to highest
+        supported_resolutions.sort(key=lambda x: int(x.split('x')[0]) * int(x.split('x')[1]))
+
         logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
         return supported_resolutions
 
@@ -231,6 +213,7 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        self.last_frame = None
         self.birthday_frame = None
         self.frame_files = sorted(glob.glob('assets/frames/*.png'))
         self.current_frame_index = 0
@@ -370,8 +353,10 @@ class CameraApp(App):
         logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
 
         # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture.isOpened():
-            self.capture.release()
+        if hasattr(self, 'capture') and self.capture.is_open:
+            self.capture.close()
+            if hasattr(self, 'frame_iterator'):
+                del self.frame_iterator
 
         # Update resolutions and set the camera to the highest available one
         resolutions = self.get_supported_resolutions(selected_index)
@@ -379,15 +364,19 @@ class CameraApp(App):
         if resolutions:
             self.resolution_selector.text = resolutions[-1]  # Default to highest
             w, h = map(int, resolutions[-1].split('x'))
-            self.capture = cv2.VideoCapture(selected_index)
-            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            logging.info(f"Set camera {selected_index} to {w}x{h}")
+
+            self.capture = Device.from_id(selected_index)
+            # Prefer MJPEG format
+            self.capture.video_capture.set_format(width=w, height=h, pixelformat='MJPG')
+            self.frame_iterator = iter(self.capture)
+            logging.info(f"Set camera {selected_index} to {w}x{h} with MJPEG format")
         else:
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = Device.from_id(selected_index)
+            self.frame_iterator = iter(self.capture)
             self.resolution_selector.text = 'Default'
+
 
     def on_camera_select(self, camera_name):
         """
@@ -472,11 +461,10 @@ class CameraApp(App):
             spinner: The spinner instance.
             text (str): The selected resolution string (e.g., "1920x1080").
         """
-        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
+        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.is_open:
             return
         w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        self.capture.video_capture.set_format(width=w, height=h, pixelformat='MJPG')
         logging.info(f"Resolution changed to {w}x{h}")
 
     def _apply_overlay(self, frame):
@@ -507,25 +495,37 @@ class CameraApp(App):
         Args:
             dt (float): The time elapsed since the last update.
         """
-        if not hasattr(self, 'capture') or not self.capture.isOpened():
+        if not hasattr(self, 'capture') or not self.capture.is_open:
             return
-        ret, frame = self.capture.read()
-        if ret:
-            frame = self._apply_overlay(frame)
 
-            # Convert the BGR frame from OpenCV to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # Flip the frame vertically (otherwise it's upside down)
-            buf1 = cv2.flip(frame_rgb, 0)
-            # Convert the frame to a 1D byte buffer
-            buf = buf1.tobytes()
-            # Create a Kivy texture from the byte buffer
-            image_texture = Texture.create(
-                size=(frame.shape[1], frame.shape[0]), colorfmt='rgb'
-            )
-            image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
-            # Display the texture in the Image widget
-            self.camera_view.texture = image_texture
+        try:
+            frame_data = next(self.frame_iterator)
+
+            # Decode the MJPEG frame
+            np_arr = np.frombuffer(frame_data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            if frame is not None:
+                self.last_frame = frame  # Store for photo capture
+                frame_with_overlay = self._apply_overlay(frame)
+
+                # Convert the BGR frame from OpenCV to RGB
+                frame_rgb = cv2.cvtColor(frame_with_overlay, cv2.COLOR_BGR2RGB)
+                # Flip the frame vertically (otherwise it's upside down)
+                buf1 = cv2.flip(frame_rgb, 0)
+                # Convert the frame to a 1D byte buffer
+                buf = buf1.tobytes()
+                # Create a Kivy texture from the byte buffer
+                image_texture = Texture.create(
+                    size=(frame.shape[1], frame.shape[0]), colorfmt='rgb'
+                )
+                image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+                # Display the texture in the Image widget
+                self.camera_view.texture = image_texture
+        except StopIteration:
+            logging.warning("End of frame stream.")
+        except Exception as e:
+            logging.error(f"Failed to get or process frame: {e}")
 
     def do_flash(self):
         """Triggers a flash animation on the screen."""
@@ -563,26 +563,37 @@ class CameraApp(App):
         """
         Captures a photo, saves it, and uploads it to the backend.
         """
-        if not hasattr(self, 'capture') or not self.capture.isOpened():
+        if not hasattr(self, 'capture') or not self.capture.is_open:
             logging.error("No camera is active to take a photo.")
             return
-        # Create the 'photos' directory if it doesn't exist
-        if not os.path.exists("photos"):
-            os.makedirs("photos")
-        ret, frame = self.capture.read()
-        if ret:
-            # Apply the overlay before saving
-            frame_with_overlay = self._apply_overlay(frame)
-            now = datetime.now()
-            filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-            cv2.imwrite(filename, frame_with_overlay)
-            logging.info(f"Photo saved as {filename}")
-            self.do_flash()
 
-            # Upload the photo to the backend if URL is set
-            if PHOTOBOOTH_URL:
-                logging.info("Uploading photo to server")
-                self._upload_photo(filename)
+        try:
+            frame_data = next(self.frame_iterator)
+            frame = cv2.imdecode(np.frombuffer(frame_data, np.uint8), cv2.IMREAD_COLOR)
+
+            if frame is not None:
+                # Create the 'photos' directory if it doesn't exist
+                if not os.path.exists("photos"):
+                    os.makedirs("photos")
+
+                # Apply the overlay before saving
+                frame_with_overlay = self._apply_overlay(frame)
+                now = datetime.now()
+                filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
+                cv2.imwrite(filename, frame_with_overlay)
+                logging.info(f"Photo saved as {filename}")
+                self.do_flash()
+
+                # Upload the photo to the backend if URL is set
+                if PHOTOBOOTH_URL:
+                    logging.info("Uploading photo to server")
+                    self._upload_photo(filename)
+            else:
+                logging.error("Failed to decode frame for photo capture.")
+        except StopIteration:
+            logging.error("End of frame stream, cannot capture photo.")
+        except Exception as e:
+            logging.error(f"Failed to capture photo: {e}")
 
     def _upload_photo(self, filename):
         """
@@ -606,8 +617,8 @@ class CameraApp(App):
         """
         if hasattr(self, 'voice_listener') and self.voice_listener:
             self.voice_listener.stop()
-        if hasattr(self, 'capture') and self.capture:
-            self.capture.release()
+        if hasattr(self, 'capture') and self.capture.is_open:
+            self.capture.close()
             logging.info("Camera released.")
 
 if __name__ == '__main__':

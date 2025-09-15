@@ -11,3 +11,4 @@ openai-whisper
 sounddevice
 torch
 requests
+v4l2py==1.4.0
