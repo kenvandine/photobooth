@@ -15,6 +15,17 @@ layout:
     bind: $SNAP/etc/nginx
 
 parts:
+  frontend:
+    plugin: npm
+    source: react_frontend
+    build-packages:
+      - npm
+    override-build: |
+      set -eux
+      npm install
+      npm run build
+      mkdir -p $CRAFT_PART_INSTALL/www
+      cp -rp build/* $CRAFT_PART_INSTALL/www/
   api:
     plugin: python
     source: .
@@ -38,12 +49,12 @@ parts:
       sed -i -e 's|www-data|root|g' $CRAFT_PART_INSTALL/etc/nginx/nginx.conf
 
 apps:
-  gunicorn:
+  api:
     command: bin/run-gunicorn.sh
     daemon: simple
     plugs: [network, network-bind]
 
-  nginx:
+  frontend:
     command: bin/run-nginx.sh
     daemon: simple
     plugs: [network, network-bind]
