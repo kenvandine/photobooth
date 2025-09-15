@@ -10,6 +10,8 @@ The application can be customized with a banner by setting the
 `CUSTOM_BANNER_PATH` environment variable. If not set, a default banner is
 created and used.
 """
+import os
+os.environ['KIVY_NO_ARGS'] = '1'
 import kivy
 kivy.require('2.3.1')
 
@@ -37,6 +39,7 @@ import logging
 import subprocess
 import re
 import requests
+import argparse
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -149,6 +152,9 @@ class CameraApp(App):
     and photo capture logic. It builds the GUI using Kivy widgets and manages
     camera selection, resolution changes, and the capture process.
     """
+    def __init__(self, device=None, **kwargs):
+        super(CameraApp, self).__init__(**kwargs)
+        self.device = device
 
     def get_available_cameras(self):
         """
@@ -231,6 +237,7 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        Window.fullscreen = True
         self.birthday_frame = None
         self.frame_files = sorted(glob.glob('assets/frames/*.png'))
         self.current_frame_index = 0
@@ -264,7 +271,11 @@ class CameraApp(App):
         main_layout.add_widget(self.camera_view)
 
         # Detect cameras and handle the case where none are found
-        self.available_cameras = self.get_available_cameras()
+        if self.device is not None:
+            self.available_cameras = {f"Device: {self.device}": self.device}
+        else:
+            self.available_cameras = self.get_available_cameras()
+
         if not self.available_cameras:
             logging.error("No cameras found!")
             # Optionally, display a message to the user in the UI
@@ -611,4 +622,14 @@ class CameraApp(App):
             logging.info("Camera released.")
 
 if __name__ == '__main__':
-    CameraApp().run()
+    parser = argparse.ArgumentParser(description="A Kivy-based camera app.")
+    parser.add_argument('--device', help='The v4l device to use (e.g., /dev/video0)')
+    args = parser.parse_args()
+    device = args.device
+    if device:
+        # Try to extract a numeric index from the end of the string,
+        # as cv2.VideoCapture prefers integer indices.
+        match = re.search(r'\d+$', device)
+        if match:
+            device = int(match.group(0))
+    CameraApp(device=device).run()
