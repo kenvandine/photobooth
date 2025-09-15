@@ -6,6 +6,11 @@ if [ -f "$_banner" ]; then
     export CUSTOM_BANNER_PATH="$_banner"
 fi
 
+_url=$(snapctl get url)
+if [ -n "$_url" ]; then
+    export PHOTOBOOTH_URL="$_url"
+fi
+
 _voice=$(snapctl get voice)
 if [[ "$_voice" == "true" ]]; then
     export VOICE_ENABLED=1
