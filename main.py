@@ -10,6 +10,8 @@ The application can be customized with a banner by setting the
 `CUSTOM_BANNER_PATH` environment variable. If not set, a default banner is
 created and used.
 """
+import os
+os.environ['KIVY_NO_ARGS'] = '1'
 import kivy
 kivy.require('2.3.1')
 
