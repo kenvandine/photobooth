@@ -8,6 +8,7 @@ sub init()
   m.mainPhoto = m.top.findNode("mainPhoto")
   m.photoCounter = m.top.findNode("photoCounter")
   m.thumbnailStrip = m.top.findNode("thumbnailStrip")
+  m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
   ' -- Initialize state
