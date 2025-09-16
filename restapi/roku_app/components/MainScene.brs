@@ -77,7 +77,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
 end function
 
 sub onSlideshowTimerFired()
-  if m.isPlaying and m.photos.count() > 0 and not m.isFading
+  if m.isPlaying and m.photos.count() > 1 and not m.isFading
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
@@ -99,7 +99,9 @@ sub onPhotosReceived()
             m.isFirstPhoto = true ' Reset for new photo list
             updateThumbnails()
             updateDisplay()
-            m.slideshowTimer.control = "start"
+            if m.photos.count() > 1
+                m.slideshowTimer.control = "start"
+            end if
         end if
     else
         print "MainScene: Error receiving photos: "; response.message
@@ -183,7 +185,7 @@ sub updateThumbnails()
 end sub
 
 sub navigate(direction as string)
-  if m.photos.count() = 0 then return
+  if m.photos.count() <= 1 then return
 
   if direction = "next"
     m.photoIndex = (m.photoIndex + 1) mod m.photos.count()
