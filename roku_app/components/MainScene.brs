@@ -22,7 +22,6 @@ sub init()
     m.slideshowTimer.duration = 5 ' 5 seconds per slide
     m.slideshowTimer.repeat = true
     m.top.observeField("fire", "onSlideshowTimerFired")
-    m.top.addNode(m.slideshowTimer)
   end if
 
 
