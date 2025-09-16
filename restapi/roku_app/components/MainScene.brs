@@ -21,6 +21,7 @@ sub init()
   m.photoIndex = 0
   m.photos = []
   m.isPlaying = true
+  m.isUpdating = false
   m.apiUrl = "http://<YOUR_IP_ADDRESS>:5000/api" ' IMPORTANT: Replace <YOUR_IP_ADDRESS> with the actual IP of the server
 
   ' -- Setup timers
@@ -128,10 +129,16 @@ sub onAnimationFinished()
     ' Reset the positions of the posters
     m.mainPhoto.translation = [0, 0]
     m.nextPhoto.translation = [1280, 0]
+
+    ' Release the update lock
+    m.isUpdating = false
   end if
 end sub
 
 sub updateDisplay()
+  if m.isUpdating then return
+  m.isUpdating = true
+
   print "MainScene: updateDisplay() called." ' <-- ADD THIS
   if m.photos.count() = 0 then return
 
