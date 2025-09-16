@@ -4,16 +4,17 @@
 ' *******************************************************************
 
 sub init()
-  ' No complex init needed anymore.
   print "PhotoFetcherTask: init() function called." ' <-- ADD THIS
+  m.top.observeField("control", "onControlChange")
 end sub
 
-' This function is called from other components. The OS marshals
-' the call to this task's thread, avoiding race conditions.
-function run()
-  print "PhotoFetcherTask: run() function called." ' <-- ADD THIS
-  getPhotos()
-end function
+' onControlChange() is called when the 'control' field is modified.
+sub onControlChange(event as object)
+  controlValue = event.getData()
+  if controlValue = "run"
+    getPhotos()
+  end if
+end sub
 
 sub getPhotos()
   print "PhotoFetcherTask: getPhotos() called." ' <-- ADD THIS

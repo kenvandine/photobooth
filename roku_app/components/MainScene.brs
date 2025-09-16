@@ -42,7 +42,7 @@ end sub
 ' This is a safer place to make the first call to a task.
 sub onFirstShow()
     print "MainScene: onFirstShow() called." ' <-- ADD THIS
-    m.photoFetcher.run() ' Initial fetch
+    m.photoFetcher.control = "run" ' Initial fetch
 end sub
 
 ' *******************************************************************
@@ -72,7 +72,7 @@ sub onSlideshowTimerFired()
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
-      m.photoFetcher.run()
+      m.photoFetcher.control = "run"
     else
       ' Show next photo
       updateDisplay()
