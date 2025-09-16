@@ -32,7 +32,12 @@ sub init()
   m.photoFetcher = m.top.findNode("photoFetcher")
   m.photoFetcher.observeField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
-  m.photoFetcher.run() ' Initial fetch
+end sub
+
+' onFirstShow() is called by the framework after the scene is displayed.
+' This is a safer place to make the first call to a task.
+sub onFirstShow()
+    m.photoFetcher.run() ' Initial fetch
 end sub
 
 ' *******************************************************************
