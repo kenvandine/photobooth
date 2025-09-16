@@ -4,15 +4,27 @@
 ' *******************************************************************
 
 sub init()
-  ' -- Observe the 'control' field to know when to start
-  m.top.observeField("control", "onControlChange")
+  ' -- The main function will be called by the component framework.
+  '    It's important that the init() function returns quickly.
+  m.top.functionName = "main"
 end sub
 
-sub onControlChange()
-  control = m.top.control
-  if control = "run"
-    getPhotos()
-  end if
+' This is the main entry point for the Task's thread.
+sub main()
+  port = createObject("roMessagePort")
+  m.top.observeField("control", port)
+
+  while true
+    msg = wait(0, port)
+    if type(msg) = "roSGNodeEvent"
+      if msg.isField("control")
+        control = msg.getData()
+        if control = "run"
+          getPhotos()
+        end if
+      end if
+    end if
+  end while
 end sub
 
 sub getPhotos()
