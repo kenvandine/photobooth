@@ -5,15 +5,18 @@
 
 sub init()
   ' No complex init needed anymore.
+  print "PhotoFetcherTask: init() function called." ' <-- ADD THIS
 end sub
 
 ' This function is called from other components. The OS marshals
 ' the call to this task's thread, avoiding race conditions.
 function run()
+  print "PhotoFetcherTask: run() function called." ' <-- ADD THIS
   getPhotos()
 end function
 
 sub getPhotos()
+  print "PhotoFetcherTask: getPhotos() called." ' <-- ADD THIS
   ' -- Get the API URL from the interface field
   apiUrl = m.top.apiUrl
   if apiUrl = invalid or apiUrl = ""

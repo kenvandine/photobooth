@@ -3,6 +3,7 @@
 ' *******************************************************************
 
 sub init()
+  print "MainScene: init() called." ' <-- ADD THIS
   ' -- Find UI components
   m.mainPhoto = m.top.findNode("mainPhoto")
   m.photoCounter = m.top.findNode("photoCounter")
@@ -18,25 +19,29 @@ sub init()
   ' -- Setup timers
   m.slideshowTimer = m.top.findNode("slideshowTimer")
   if m.slideshowTimer = invalid
+    print "MainScene: init() timer." ' <-- ADD THIS
     m.slideshowTimer = createObject("roSGNode", "Timer")
     m.slideshowTimer.duration = 5 ' 5 seconds per slide
     m.slideshowTimer.repeat = true
-    m.top.observeField("fire", "onSlideshowTimerFired")
+    m.top.ObserveField("fire", "onSlideshowTimerFired")
   end if
 
   ' -- Add key event observer
   m.top.setFocus(true)
-  m.top.observeField("wasHotKey", "onKeyEvent")
+  m.top.ObserveField("wasHotKey", "onKeyEvent")
 
   ' -- Setup the PhotoFetcherTask
   m.photoFetcher = createObject("roSGNode", "PhotoFetcherTask")
-  m.photoFetcher.observeField("response", "onPhotosReceived")
+  m.photoFetcher.ObserveField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
+  print "MainScene: init() END." ' <-- ADD THIS
+  m.top.ObserveField("focusedChild", "onFirstShow")
 end sub
 
 ' onFirstShow() is called by the framework after the scene is displayed.
 ' This is a safer place to make the first call to a task.
 sub onFirstShow()
+    print "MainScene: onFirstShow() called." ' <-- ADD THIS
     m.photoFetcher.run() ' Initial fetch
 end sub
 
@@ -45,6 +50,7 @@ end sub
 ' *******************************************************************
 
 function onKeyEvent(event as object) as boolean
+  print "MainScene: onKeyEvent() called." ' <-- ADD THIS
   if event.getRoSGNode().isFocused()
     key = event.getKey()
     if key = "right"
@@ -75,6 +81,7 @@ sub onSlideshowTimerFired()
 end sub
 
 sub onPhotosReceived()
+    print "MainScene: onPhotosReceived() called." ' <-- ADD THIS
     response = m.photoFetcher.response
     if response <> invalid and response.status = "success"
         m.photos = response.data
@@ -94,6 +101,7 @@ end sub
 ' *******************************************************************
 
 sub updateDisplay()
+  print "MainScene: updateDisplay() called." ' <-- ADD THIS
   if m.photos.count() = 0 then return
 
   ' -- Ensure index is within bounds
