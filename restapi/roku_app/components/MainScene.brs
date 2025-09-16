@@ -11,6 +11,11 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
+  ' -- Find transition nodes
+  m.nextPhoto = m.top.findNode("nextPhoto")
+  m.slideAnimation = m.top.findNode("slideAnimation")
+  m.slideAnimation.ObserveField("control", "onAnimationFinished")
+
   ' -- Initialize state
   m.photoIndex = 0
   m.photos = []
@@ -102,6 +107,18 @@ end sub
 ' ** Core Logic
 ' *******************************************************************
 
+sub onAnimationFinished()
+  if m.slideAnimation.control = "stop"
+    ' Animation has finished, now reset the state for the next transition
+    ' The photo that just slid in (nextPhoto) is now our mainPhoto
+    m.mainPhoto.uri = m.nextPhoto.uri
+
+    ' Reset the positions of the posters
+    m.mainPhoto.translation = [0, 0]
+    m.nextPhoto.translation = [1280, 0]
+  end if
+end sub
+
 sub updateDisplay()
   print "MainScene: updateDisplay() called." ' <-- ADD THIS
   if m.photos.count() = 0 then return
@@ -115,7 +132,10 @@ sub updateDisplay()
   photoId = photoData.id
   imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
 
-  m.mainPhoto.uri = imageUrl
+  ' -- Start the transition
+  m.nextPhoto.uri = imageUrl
+  m.slideAnimation.control = "start"
+
   m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
   m.thumbnailStrip.jumpToItem = m.photoIndex
 end sub
