@@ -3,7 +3,7 @@
   <interface>
     <!-- INPUT -->
     <field id="apiUrl" type="string" />
-    <function name="run" />
+    <field id="control" type="string" />
 
     <!-- OUTPUT -->
     <field id="response" type="assocarray" />

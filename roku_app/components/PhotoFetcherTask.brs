@@ -4,17 +4,13 @@
 ' *******************************************************************
 
 sub init()
-  ' No complex init needed anymore.
   print "PhotoFetcherTask: init() function called." ' <-- ADD THIS
+  ' Set the name of the function to be run on the task's thread
+  m.top.functionName = "getPhotos"
 end sub
 
-' This function is called from other components. The OS marshals
-' the call to this task's thread, avoiding race conditions.
-function run()
-  print "PhotoFetcherTask: run() function called." ' <-- ADD THIS
-  getPhotos()
-end function
-
+' This function will be executed on the task's own thread
+' when its 'control' field is set to "run".
 sub getPhotos()
   print "PhotoFetcherTask: getPhotos() called." ' <-- ADD THIS
   ' -- Get the API URL from the interface field
@@ -37,7 +33,7 @@ sub getPhotos()
         response = {}
         if msg.getResponseCode() = 200
           json = ParseJSON(msg.getString())
-          if json <> invalid and json.isAssocArray() and json.doesExist("photos")
+          if json <> invalid and type(json) = "roAssociativeArray" and json.doesExist("photos")
             response.status = "success"
             response.data = json.photos
           else

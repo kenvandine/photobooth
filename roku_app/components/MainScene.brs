@@ -8,6 +8,7 @@ sub init()
   m.mainPhoto = m.top.findNode("mainPhoto")
   m.photoCounter = m.top.findNode("photoCounter")
   m.thumbnailStrip = m.top.findNode("thumbnailStrip")
+  m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
   ' -- Initialize state
@@ -23,12 +24,12 @@ sub init()
     m.slideshowTimer = createObject("roSGNode", "Timer")
     m.slideshowTimer.duration = 5 ' 5 seconds per slide
     m.slideshowTimer.repeat = true
-    m.top.ObserveField("fire", "onSlideshowTimerFired")
+    m.top.appendChild(m.slideshowTimer) ' Add the timer to the scene
+    m.slideshowTimer.ObserveField("fire", "onSlideshowTimerFired")
   end if
 
   ' -- Add key event observer
   m.top.setFocus(true)
-  m.top.ObserveField("wasHotKey", "onKeyEvent")
 
   ' -- Setup the PhotoFetcherTask
   m.photoFetcher = createObject("roSGNode", "PhotoFetcherTask")
@@ -42,17 +43,18 @@ end sub
 ' This is a safer place to make the first call to a task.
 sub onFirstShow()
     print "MainScene: onFirstShow() called." ' <-- ADD THIS
-    m.photoFetcher.run() ' Initial fetch
+    m.photoFetcher.control = "run" ' Initial fetch
 end sub
 
 ' *******************************************************************
 ' ** Event Handlers
 ' *******************************************************************
 
-function onKeyEvent(event as object) as boolean
-  print "MainScene: onKeyEvent() called." ' <-- ADD THIS
-  if event.getRoSGNode().isFocused()
-    key = event.getKey()
+' onKeyEvent() is a built-in Scene function that handles remote control key presses.
+' It returns true if the key was handled, and false otherwise.
+function onKeyEvent(key as string, press as boolean) as boolean
+  print "MainScene: onKeyEvent() called with key: "; key
+  if press ' Only handle key-down events
     if key = "right"
       navigate("next")
       return true
@@ -72,7 +74,7 @@ sub onSlideshowTimerFired()
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
-      m.photoFetcher.run()
+      m.photoFetcher.control = "run"
     else
       ' Show next photo
       updateDisplay()
