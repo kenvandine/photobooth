@@ -8,7 +8,10 @@
       id="mainPhoto"
       width="1280"
       height="720"
-      translation="[0, 0]" />
+      loadWidth="1280"
+      loadHeight="720"
+      translation="[0, 0]"
+      loadDisplayMode="scaleToFit" />
 
     <!-- Photo Counter Label -->
     <Label

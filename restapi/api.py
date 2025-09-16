@@ -7,6 +7,8 @@ import base64
 from werkzeug.utils import secure_filename
 import mimetypes
 from pathlib import Path
+from PIL import Image, ImageOps
+import io
 
 app = Flask(__name__)
 
@@ -195,7 +197,9 @@ def get_photo_metadata(photo_id):
 
 @app.route('/api/photos/<photo_id>/file', methods=['GET'])
 def download_photo(photo_id):
-    """Download the actual photo file."""
+    """
+    Download the actual photo file, automatically correcting for EXIF orientation.
+    """
     try:
         metadata = load_metadata(photo_id)
         if not metadata:
@@ -205,8 +209,21 @@ def download_photo(photo_id):
         if not os.path.exists(filepath):
             return jsonify({'error': 'Photo file not found'}), 404
             
+        # Open the image with Pillow
+        image = Image.open(filepath)
+
+        # Correct the orientation using EXIF data
+        image = ImageOps.exif_transpose(image)
+
+        # Save the corrected image to an in-memory buffer
+        img_io = io.BytesIO()
+        # Preserve original format, default to JPEG if format is unknown
+        image_format = image.format or 'JPEG'
+        image.save(img_io, format=image_format)
+        img_io.seek(0)
+
         return send_file(
-            filepath,
+            img_io,
             as_attachment=False,
             download_name=metadata['original_filename'],
             mimetype=metadata['content_type']
