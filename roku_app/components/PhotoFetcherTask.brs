@@ -5,17 +5,12 @@
 
 sub init()
   print "PhotoFetcherTask: init() function called." ' <-- ADD THIS
-  m.top.observeField("control", "onControlChange")
+  ' Set the name of the function to be run on the task's thread
+  m.top.functionName = "getPhotos"
 end sub
 
-' onControlChange() is called when the 'control' field is modified.
-sub onControlChange(event as object)
-  controlValue = event.getData()
-  if controlValue = "run"
-    getPhotos()
-  end if
-end sub
-
+' This function will be executed on the task's own thread
+' when its 'control' field is set to "run".
 sub getPhotos()
   print "PhotoFetcherTask: getPhotos() called." ' <-- ADD THIS
   ' -- Get the API URL from the interface field
