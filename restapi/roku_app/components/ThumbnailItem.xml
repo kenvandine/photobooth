@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ThumbnailItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onItemContentChange" />
+  </interface>
+
+  <script type="text/brightscript">
+    <![CDATA[
+    sub onItemContentChange()
+      itemContent = m.top.itemContent
+      m.thumbnail.uri = itemContent.thumbnailUrl
+    end sub
+    ]]>
+  </script>
+
+  <children>
+    <Poster
+      id="thumbnail"
+      width="160"
+      height="90" />
+  </children>
+</component>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PhotoFetcherTask" extends="Task">
+  <interface>
+    <!-- INPUT -->
+    <field id="apiUrl" type="string" />
+    <field id="control" type="string" />
+
+    <!-- OUTPUT -->
+    <field id="response" type="assocarray" />
+  </interface>
+
+  <script type="text/brightscript" uri="pkg:/components/PhotoFetcherTask.brs" />
+</component>
