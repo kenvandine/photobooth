@@ -1,0 +1,13 @@
+title=Photo Slideshow
+major_version=1
+minor_version=0
+build_version=0
+
+# The icon for the channel when it is in focus.
+mm_icon_focus_hd=pkg:/images/channel-icon-hd.png
+
+# The main scene for the application
+initial_scene=MainScene
+
+# Set the resolution to HD
+ui_resolutions=hd

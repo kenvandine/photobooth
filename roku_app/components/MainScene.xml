@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+
+  <children>
+    <!-- Main Photo Display -->
+    <Poster
+      id="mainPhoto"
+      width="1280"
+      height="720"
+      translation="[0, 0]" />
+
+    <!-- Photo Counter Label -->
+    <Label
+      id="photoCounter"
+      width="300"
+      height="40"
+      translation="[50, 50]"
+      horizAlign="left"
+      font="font:SmallBoldSystemFont" />
+
+    <!-- Thumbnail Strip -->
+    <RowList
+      id="thumbnailStrip"
+      translation="[0, 600]"
+      itemComponentName="ThumbnailItem"
+      numRows="1"
+      rowHeights="[120]"
+      itemSize="[160, 90]"
+      rowItemSpacing="[[20, 0]]" />
+
+    <!-- Play/Pause Indicator -->
+    <Label
+      id="playPauseIndicator"
+      width="200"
+      height="40"
+      translation="[1030, 50]"
+      horizAlign="right"
+      font="font:SmallBoldSystemFont"
+      text="Playing" />
+  </children>
+</component>
