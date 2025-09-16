@@ -1,6 +1,6 @@
 name: photobooth-api
 base: core24
-version: '0.1'
+version: '0.1.1'
 summary: A RESTful API for the photobooth application
 description: |
   A RESTful Flask API for managing photo uploads, storage, and retrieval.
