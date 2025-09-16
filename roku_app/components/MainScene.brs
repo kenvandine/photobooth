@@ -32,7 +32,7 @@ sub init()
   m.photoFetcher = m.top.findNode("photoFetcher")
   m.photoFetcher.observeField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
-  m.photoFetcher.control = "run" ' Initial fetch
+  m.photoFetcher.run() ' Initial fetch
 end sub
 
 ' *******************************************************************
@@ -61,7 +61,7 @@ sub onSlideshowTimerFired()
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
-      m.photoFetcher.control = "run"
+      m.photoFetcher.run()
     else
       ' Show next photo
       updateDisplay()

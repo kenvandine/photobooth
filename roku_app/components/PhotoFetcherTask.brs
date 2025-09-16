@@ -4,28 +4,14 @@
 ' *******************************************************************
 
 sub init()
-  ' -- The main function will be called by the component framework.
-  '    It's important that the init() function returns quickly.
-  m.top.functionName = "main"
+  ' No complex init needed anymore.
 end sub
 
-' This is the main entry point for the Task's thread.
-sub main()
-  port = createObject("roMessagePort")
-  m.top.observeField("control", port)
-
-  while true
-    msg = wait(0, port)
-    if type(msg) = "roSGNodeEvent"
-      if msg.isField("control")
-        control = msg.getData()
-        if control = "run"
-          getPhotos()
-        end if
-      end if
-    end if
-  end while
-end sub
+' This function is called from other components. The OS marshals
+' the call to this task's thread, avoiding race conditions.
+function run()
+  getPhotos()
+end function
 
 sub getPhotos()
   ' -- Get the API URL from the interface field
