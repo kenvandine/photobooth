@@ -29,7 +29,7 @@ sub init()
   m.top.observeField("wasHotKey", "onKeyEvent")
 
   ' -- Setup the PhotoFetcherTask
-  m.photoFetcher = m.top.findNode("photoFetcher")
+  m.photoFetcher = createObject("roSGNode", "PhotoFetcherTask")
   m.photoFetcher.observeField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
 end sub
