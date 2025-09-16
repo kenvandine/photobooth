@@ -24,7 +24,7 @@ sub init()
     m.slideshowTimer.duration = 5 ' 5 seconds per slide
     m.slideshowTimer.repeat = true
     m.top.appendChild(m.slideshowTimer) ' Add the timer to the scene
-    m.top.ObserveField("fire", "onSlideshowTimerFired")
+    m.slideshowTimer.ObserveField("fire", "onSlideshowTimerFired")
   end if
 
   ' -- Add key event observer
