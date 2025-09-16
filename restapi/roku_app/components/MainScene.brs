@@ -6,6 +6,7 @@ sub init()
   print "MainScene: init() called." ' <-- ADD THIS
   ' -- Find UI components
   m.mainPhoto = m.top.findNode("mainPhoto")
+  m.mainPhoto.disableScreenSaver = true
   m.photoCounter = m.top.findNode("photoCounter")
   m.thumbnailStrip = m.top.findNode("thumbnailStrip")
   m.thumbnailStrip.focusable = false
@@ -115,7 +116,11 @@ sub updateDisplay()
   photoId = photoData.id
   imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
 
-  m.mainPhoto.uri = imageUrl
+  videoContent = createObject("roSGNode", "ContentNode")
+  videoContent.url = imageUrl
+  videoContent.streamformat = "jpg" ' Or other image formats
+  m.mainPhoto.content = videoContent
+  m.mainPhoto.control = "play"
   m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
   m.thumbnailStrip.jumpToItem = m.photoIndex
 end sub
