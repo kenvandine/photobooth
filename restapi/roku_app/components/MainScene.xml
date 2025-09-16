@@ -40,5 +40,10 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+
+    <Animation
+      id="fadeAnimation"
+      duration="0.5"
+      easing="linear" />
   </children>
 </component>
