@@ -115,7 +115,7 @@ sub onFadeStateChange()
       ' 2. Update the photo URI, which will trigger the onPhotoLoadStateChange observer
       photoData = m.photos[m.photoIndex]
       photoId = photoData.id
-      imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
+      imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
       m.mainPhoto.uri = imageUrl
       m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
       m.thumbnailStrip.jumpToItem = m.photoIndex
@@ -161,7 +161,7 @@ sub updateDisplay()
     ' Don't fade, just load the first photo directly
     photoData = m.photos[m.photoIndex]
     photoId = photoData.id
-    imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
+    imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
     m.mainPhoto.uri = imageUrl
     m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
     m.thumbnailStrip.jumpToItem = m.photoIndex
@@ -177,7 +177,7 @@ sub updateThumbnails()
   content = createObject("roSGNode", "ContentNode")
   for each photo in m.photos
     photoId = photo.id
-    thumbnailUrl = m.apiUrl + "/photos/" + photoId + "/file" ' Using full image for thumbnail
+    thumbnailUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file" ' Using full image for thumbnail
     item = content.createChild("ContentNode")
     item.addFields({ thumbnailUrl: thumbnailUrl })
   end for
