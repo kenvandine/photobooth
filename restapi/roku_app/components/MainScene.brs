@@ -15,6 +15,7 @@ sub init()
   m.nextPhoto = m.top.findNode("nextPhoto")
   m.slideAnimation = m.top.findNode("slideAnimation")
   m.slideAnimation.ObserveField("control", "onAnimationFinished")
+  m.nextPhoto.ObserveField("loadStatus", "onNextPhotoLoaded")
 
   ' -- Initialize state
   m.photoIndex = 0
@@ -107,6 +108,17 @@ end sub
 ' ** Core Logic
 ' *******************************************************************
 
+sub onNextPhotoLoaded()
+  if m.nextPhoto.loadStatus = "finished"
+    ' The image is ready, now we can start the transition
+    m.slideAnimation.control = "start"
+  else if m.nextPhoto.loadStatus = "failed"
+    ' Handle the error, maybe try to load the next photo?
+    ' For now, just log it.
+    print "Error: nextPhoto failed to load URI: "; m.nextPhoto.uri
+  end if
+end sub
+
 sub onAnimationFinished()
   if m.slideAnimation.control = "stop"
     ' Animation has finished, now reset the state for the next transition
@@ -132,9 +144,9 @@ sub updateDisplay()
   photoId = photoData.id
   imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
 
-  ' -- Start the transition
+  ' -- Set the URI for the incoming poster. The animation will be triggered
+  ' -- by the onNextPhotoLoaded observer when the image is ready.
   m.nextPhoto.uri = imageUrl
-  m.slideAnimation.control = "start"
 
   m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
   m.thumbnailStrip.jumpToItem = m.photoIndex
