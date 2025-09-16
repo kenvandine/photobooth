@@ -31,14 +31,12 @@
         control="stop"
         easeFunction="linear">
 
-        <Vector2DAnimation
-            target="mainPhoto"
-            field="translation"
+        <Vector2DFieldInterpolator
+            fieldToInterp="mainPhoto.translation"
             keyValue="[ [-1280, 0] ]" />
 
-        <Vector2DAnimation
-            target="nextPhoto"
-            field="translation"
+        <Vector2DFieldInterpolator
+            fieldToInterp="nextPhoto.translation"
             keyValue="[ [0, 0] ]" />
     </Animation>
 
