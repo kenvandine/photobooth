@@ -23,6 +23,7 @@ sub init()
     m.slideshowTimer = createObject("roSGNode", "Timer")
     m.slideshowTimer.duration = 5 ' 5 seconds per slide
     m.slideshowTimer.repeat = true
+    m.top.appendChild(m.slideshowTimer) ' Add the timer to the scene
     m.top.ObserveField("fire", "onSlideshowTimerFired")
   end if
 
@@ -51,18 +52,16 @@ end sub
 
 function onKeyEvent(event as object) as boolean
   print "MainScene: onKeyEvent() called." ' <-- ADD THIS
-  if event.getRoSGNode().isFocused()
-    key = event.getKey()
-    if key = "right"
-      navigate("next")
-      return true
-    else if key = "left"
-      navigate("previous")
-      return true
-    else if key = "play" or key = "pause" or key = "ok"
-      togglePlayPause()
-      return true
-    end if
+  key = event.getKey()
+  if key = "right"
+    navigate("next")
+    return true
+  else if key = "left"
+    navigate("previous")
+    return true
+  else if key = "play" or key = "pause" or key = "ok"
+    togglePlayPause()
+    return true
   end if
   return false
 end function
