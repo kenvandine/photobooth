@@ -43,11 +43,10 @@
 
     <Animation
       id="fadeAnimation"
-      target="mainPhoto"
       duration="0.5" >
       <FloatFieldInterpolator
         id="fadeInterpolator"
-        fieldToInterp="opacity" />
+        fieldToInterp="mainPhoto.opacity" />
     </Animation>
   </children>
 </component>
