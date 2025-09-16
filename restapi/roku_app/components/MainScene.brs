@@ -37,6 +37,7 @@ sub init()
   m.photoFetcher.apiUrl = m.apiUrl
   print "MainScene: init() END." ' <-- ADD THIS
   m.fadeAnimation = m.top.findNode("fadeAnimation")
+  m.fadeInterpolator = m.top.findNode("fadeInterpolator")
   m.fadeAnimation.observeField("state", "onFadeStateChange")
   m.mainPhoto.opacity = 1.0 ' Start fully visible
   m.isFading = false
@@ -115,7 +116,7 @@ sub onFadeStateChange()
       m.thumbnailStrip.jumpToItem = m.photoIndex
 
       ' 3. Start fade-in animation
-      m.fadeAnimation.keyValue = [0.0, 1.0] ' From transparent to opaque
+      m.fadeInterpolator.keyValue = [0.0, 1.0] ' From transparent to opaque
       m.fadeAnimation.control = "start"
     else ' Fade in finished
       m.isFading = false
@@ -139,9 +140,7 @@ sub updateDisplay()
 
   ' 1. Start fade-out animation
   m.isFading = true
-  m.fadeAnimation.target = m.mainPhoto
-  m.fadeAnimation.field = "opacity"
-  m.fadeAnimation.keyValue = [1.0, 0.0] ' From opaque to transparent
+  m.fadeInterpolator.keyValue = [1.0, 0.0] ' From opaque to transparent
   m.fadeAnimation.control = "start"
 end sub
 
