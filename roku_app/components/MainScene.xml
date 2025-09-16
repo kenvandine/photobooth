@@ -38,5 +38,7 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+
+    <PhotoFetcherTask id="photoFetcher" />
   </children>
 </component>

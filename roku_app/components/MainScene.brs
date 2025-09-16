@@ -24,13 +24,15 @@ sub init()
     m.top.observeField("fire", "onSlideshowTimerFired")
   end if
 
-
   ' -- Add key event observer
   m.top.setFocus(true)
   m.top.observeField("wasHotKey", "onKeyEvent")
 
-  ' -- Initial fetch of photos
-  getPhotos()
+  ' -- Setup the PhotoFetcherTask
+  m.photoFetcher = m.top.findNode("photoFetcher")
+  m.photoFetcher.observeField("response", "onPhotosReceived")
+  m.photoFetcher.apiUrl = m.apiUrl
+  m.photoFetcher.control = "run" ' Initial fetch
 end sub
 
 ' *******************************************************************
@@ -59,7 +61,7 @@ sub onSlideshowTimerFired()
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
-      getPhotos()
+      m.photoFetcher.control = "run"
     else
       ' Show next photo
       updateDisplay()
@@ -67,38 +69,24 @@ sub onSlideshowTimerFired()
   end if
 end sub
 
+sub onPhotosReceived()
+    response = m.photoFetcher.response
+    if response <> invalid and response.status = "success"
+        m.photos = response.data
+        if m.photos.count() > 0
+            m.photoIndex = 0 ' Reset to the first photo
+            updateThumbnails()
+            updateDisplay()
+            m.slideshowTimer.control = "start"
+        end if
+    else
+        print "MainScene: Error receiving photos: "; response.message
+    end if
+end sub
+
 ' *******************************************************************
 ' ** Core Logic
 ' *******************************************************************
-
-sub getPhotos()
-  url = m.apiUrl + "/photos"
-  m.fetcher = createObject("roUrlTransfer")
-  m.fetcher.setUrl(url)
-  m.fetcher.setPort(createObject("roMessagePort"))
-  if m.fetcher.asyncGetToString()
-    while true
-      msg = wait(0, m.fetcher.getPort())
-      if type(msg) = "roUrlEvent"
-        if msg.getResponseCode() = 200
-          json = ParseJSON(msg.getString())
-          if json <> invalid and json.isAssocArray() and json.doesExist("photos")
-            m.photos = json.photos
-            if m.photos.count() > 0
-              m.photoIndex = 0 ' Reset to the first photo
-              updateThumbnails()
-              updateDisplay()
-              m.slideshowTimer.control = "start"
-            end if
-          end if
-        else
-          print "Error fetching photos: "; msg.getResponseCode()
-        end if
-        exit while
-      end if
-    end while
-  end if
-end sub
 
 sub updateDisplay()
   if m.photos.count() = 0 then return
