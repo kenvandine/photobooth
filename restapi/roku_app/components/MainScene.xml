@@ -13,33 +13,6 @@
       translation="[0, 0]"
       loadDisplayMode="scaleToFit" />
 
-    <!-- Poster for the next photo in the transition -->
-    <Poster
-      id="nextPhoto"
-      width="1280"
-      height="720"
-      loadWidth="1280"
-      loadHeight="720"
-      translation="[1280, 0]"
-      loadDisplayMode="scaleToFit"
-      opacity="1" />
-
-    <!-- Animation for the slide transition -->
-    <Animation
-        id="slideAnimation"
-        duration="0.5"
-        control="stop"
-        easeFunction="linear">
-
-        <Vector2DFieldInterpolator
-            fieldToInterp="mainPhoto.translation"
-            keyValue="[ [-1280, 0] ]" />
-
-        <Vector2DFieldInterpolator
-            fieldToInterp="nextPhoto.translation"
-            keyValue="[ [0, 0] ]" />
-    </Animation>
-
     <!-- Photo Counter Label -->
     <Label
       id="photoCounter"

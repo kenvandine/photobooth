@@ -11,17 +11,13 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
-  ' -- Find transition nodes
-  m.nextPhoto = m.top.findNode("nextPhoto")
-  m.slideAnimation = m.top.findNode("slideAnimation")
-  m.slideAnimation.ObserveField("control", "onAnimationFinished")
-  m.nextPhoto.ObserveField("loadStatus", "onNextPhotoLoaded")
+  ' -- Diagnostic observer
+  m.mainPhoto.ObserveField("loadStatus", "onMainPhotoLoaded")
 
   ' -- Initialize state
   m.photoIndex = 0
   m.photos = []
   m.isPlaying = true
-  m.isUpdating = false
   m.apiUrl = "http://<YOUR_IP_ADDRESS>:5000/api" ' IMPORTANT: Replace <YOUR_IP_ADDRESS> with the actual IP of the server
 
   ' -- Setup timers
@@ -98,47 +94,22 @@ sub onPhotosReceived()
             m.photoIndex = 0 ' Reset to the first photo
             updateThumbnails()
             updateDisplay()
-            m.slideshowTimer.control = "start"
+            ' m.slideshowTimer.control = "start" ' -- DIAGNOSTIC: Timer disabled
         end if
     else
         print "MainScene: Error receiving photos: "; response.message
     end if
 end sub
 
+sub onMainPhotoLoaded()
+  print "[DIAGNOSTIC] mainPhoto loadStatus: "; m.mainPhoto.loadStatus
+end sub
+
 ' *******************************************************************
 ' ** Core Logic
 ' *******************************************************************
 
-sub onNextPhotoLoaded()
-  if m.nextPhoto.loadStatus = "finished"
-    ' The image is ready, now we can start the transition
-    m.slideAnimation.control = "start"
-  else if m.nextPhoto.loadStatus = "failed"
-    ' Handle the error, maybe try to load the next photo?
-    ' For now, just log it.
-    print "Error: nextPhoto failed to load URI: "; m.nextPhoto.uri
-  end if
-end sub
-
-sub onAnimationFinished()
-  if m.slideAnimation.control = "stop"
-    ' Animation has finished, now reset the state for the next transition
-    ' The photo that just slid in (nextPhoto) is now our mainPhoto
-    m.mainPhoto.uri = m.nextPhoto.uri
-
-    ' Reset the positions of the posters
-    m.mainPhoto.translation = [0, 0]
-    m.nextPhoto.translation = [1280, 0]
-
-    ' Release the update lock
-    m.isUpdating = false
-  end if
-end sub
-
 sub updateDisplay()
-  if m.isUpdating then return
-  m.isUpdating = true
-
   print "MainScene: updateDisplay() called." ' <-- ADD THIS
   if m.photos.count() = 0 then return
 
@@ -151,10 +122,7 @@ sub updateDisplay()
   photoId = photoData.id
   imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
 
-  ' -- Set the URI for the incoming poster. The animation will be triggered
-  ' -- by the onNextPhotoLoaded observer when the image is ready.
-  m.nextPhoto.uri = imageUrl
-
+  m.mainPhoto.uri = imageUrl
   m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
   m.thumbnailStrip.jumpToItem = m.photoIndex
 end sub
