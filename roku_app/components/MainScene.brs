@@ -30,7 +30,6 @@ sub init()
 
   ' -- Add key event observer
   m.top.setFocus(true)
-  m.top.ObserveField("wasHotKey", "onKeyEvent")
 
   ' -- Setup the PhotoFetcherTask
   m.photoFetcher = createObject("roSGNode", "PhotoFetcherTask")
@@ -51,18 +50,21 @@ end sub
 ' ** Event Handlers
 ' *******************************************************************
 
-function onKeyEvent(event as object) as boolean
-  print "MainScene: onKeyEvent() called." ' <-- ADD THIS
-  key = event.getKey()
-  if key = "right"
-    navigate("next")
-    return true
-  else if key = "left"
-    navigate("previous")
-    return true
-  else if key = "play" or key = "pause" or key = "ok"
-    togglePlayPause()
-    return true
+' onKeyEvent() is a built-in Scene function that handles remote control key presses.
+' It returns true if the key was handled, and false otherwise.
+function onKeyEvent(key as string, press as boolean) as boolean
+  print "MainScene: onKeyEvent() called with key: "; key
+  if press ' Only handle key-down events
+    if key = "right"
+      navigate("next")
+      return true
+    else if key = "left"
+      navigate("previous")
+      return true
+    else if key = "play" or key = "pause" or key = "ok"
+      togglePlayPause()
+      return true
+    end if
   end if
   return false
 end function
