@@ -39,6 +39,7 @@ sub init()
   m.fadeAnimation = m.top.findNode("fadeAnimation")
   m.fadeInterpolator = m.top.findNode("fadeInterpolator")
   m.fadeAnimation.observeField("state", "onFadeStateChange")
+  m.mainPhoto.observeField("loadState", "onPhotoLoadStateChange")
   m.mainPhoto.opacity = 1.0 ' Start fully visible
   m.isFading = false
   m.top.ObserveField("focusedChild", "onFirstShow")
@@ -107,21 +108,30 @@ sub onFadeStateChange()
   if m.fadeAnimation.state = "stopped"
     ' If fade out has just finished
     if m.mainPhoto.opacity = 0.0
-      ' 2. Update the photo URI
+      ' 2. Update the photo URI, which will trigger the onPhotoLoadStateChange observer
       photoData = m.photos[m.photoIndex]
       photoId = photoData.id
       imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
       m.mainPhoto.uri = imageUrl
       m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
       m.thumbnailStrip.jumpToItem = m.photoIndex
-
-      ' 3. Start fade-in animation
-      m.fadeInterpolator.keyValue = [0.0, 1.0] ' From transparent to opaque
-      m.fadeAnimation.control = "start"
     else ' Fade in finished
       m.isFading = false
     end if
   end if
+end sub
+
+sub onPhotoLoadStateChange()
+    if m.mainPhoto.loadState = "loaded"
+        ' Now that the image is loaded, we can fade it in.
+        m.fadeInterpolator.keyValue = [0.0, 1.0]
+        m.fadeAnimation.control = "start"
+    else if m.mainPhoto.loadState = "failed"
+        ' Handle load failure
+        print "MainScene: Photo load failed."
+        ' For now, just stop the fade process to allow the next photo to load.
+        m.isFading = false
+    end if
 end sub
 
 
