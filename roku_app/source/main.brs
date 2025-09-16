@@ -13,7 +13,7 @@ sub Main()
 
   ' -- Event loop
   while true
-    msg = wait(0, port)
+    msg = wait(1000, port) ' Use a timeout to prevent blocking
     msgType = type(msg)
 
     if msgType = "roSGScreenEvent"

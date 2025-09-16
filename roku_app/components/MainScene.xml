@@ -28,7 +28,6 @@
       rowHeights="[120]"
       itemSize="[160, 90]"
       rowItemSpacing="[[20, 0]]" />
-
     <!-- Play/Pause Indicator -->
     <Label
       id="playPauseIndicator"
