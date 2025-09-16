@@ -36,6 +36,10 @@ sub init()
   m.photoFetcher.ObserveField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
   print "MainScene: init() END." ' <-- ADD THIS
+  m.fadeAnimation = m.top.findNode("fadeAnimation")
+  m.fadeAnimation.observeField("state", "onFadeStateChange")
+  m.mainPhoto.opacity = 1.0 ' Start fully visible
+  m.isFading = false
   m.top.ObserveField("focusedChild", "onFirstShow")
 end sub
 
@@ -54,7 +58,7 @@ end sub
 ' It returns true if the key was handled, and false otherwise.
 function onKeyEvent(key as string, press as boolean) as boolean
   print "MainScene: onKeyEvent() called with key: "; key
-  if press ' Only handle key-down events
+  if press and not m.isFading ' Only handle key-down events if not fading
     if key = "right"
       navigate("next")
       return true
@@ -70,7 +74,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
 end function
 
 sub onSlideshowTimerFired()
-  if m.isPlaying and m.photos.count() > 0
+  if m.isPlaying and m.photos.count() > 0 and not m.isFading
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
@@ -98,26 +102,47 @@ sub onPhotosReceived()
     end if
 end sub
 
+sub onFadeStateChange()
+  if m.fadeAnimation.state = "stopped"
+    ' If fade out has just finished
+    if m.mainPhoto.opacity = 0.0
+      ' 2. Update the photo URI
+      photoData = m.photos[m.photoIndex]
+      photoId = photoData.id
+      imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
+      m.mainPhoto.uri = imageUrl
+      m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
+      m.thumbnailStrip.jumpToItem = m.photoIndex
+
+      ' 3. Start fade-in animation
+      m.fadeAnimation.keyValue = [0.0, 1.0] ' From transparent to opaque
+      m.fadeAnimation.control = "start"
+    else ' Fade in finished
+      m.isFading = false
+    end if
+  end if
+end sub
+
+
 ' *******************************************************************
 ' ** Core Logic
 ' *******************************************************************
 
 sub updateDisplay()
   print "MainScene: updateDisplay() called." ' <-- ADD THIS
-  if m.photos.count() = 0 then return
+  if m.photos.count() = 0 or m.isFading then return
 
   ' -- Ensure index is within bounds
   if m.photoIndex < 0 or m.photoIndex >= m.photos.count()
     m.photoIndex = 0
   end if
 
-  photoData = m.photos[m.photoIndex]
-  photoId = photoData.id
-  imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
-
-  m.mainPhoto.uri = imageUrl
-  m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
-  m.thumbnailStrip.jumpToItem = m.photoIndex
+  ' 1. Start fade-out animation
+  m.isFading = true
+  m.fadeAnimation.target = m.mainPhoto
+  m.fadeAnimation.field = "opacity"
+  m.fadeAnimation.keyValue = [1.0, 0.0] ' From opaque to transparent
+  m.fadeAnimation.control = "start"
 end sub
 
 sub updateThumbnails()
