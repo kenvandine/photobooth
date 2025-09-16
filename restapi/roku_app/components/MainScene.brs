@@ -77,6 +77,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
 end function
 
 sub onSlideshowTimerFired()
+  print "[DEBUG] onSlideshowTimerFired called"
   if m.isPlaying and m.photos.count() > 1 and not m.isFading
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
@@ -94,6 +95,9 @@ sub onPhotosReceived()
     response = m.photoFetcher.response
     if response <> invalid and response.status = "success"
         m.photos = response.data
+        print "[DEBUG] ****** PHOTOS DATA RECEIVED ******"
+        print m.photos
+        print "[DEBUG] ********************************"
         if m.photos.count() > 0
             m.photoIndex = 0 ' Reset to the first photo
             m.isFirstPhoto = true ' Reset for new photo list
@@ -109,34 +113,44 @@ sub onPhotosReceived()
 end sub
 
 sub onFadeStateChange()
+  print "[DEBUG] onFadeStateChange called. State: "; m.fadeAnimation.state
   if m.fadeAnimation.state = "stopped"
+    print "[DEBUG]   Animation stopped. Opacity: "; m.mainPhoto.opacity
     ' If fade out has just finished
     if m.mainPhoto.opacity = 0.0
       ' 2. Update the photo URI, which will trigger the onPhotoLoadStateChange observer
       photoData = m.photos[m.photoIndex]
       photoId = photoData.id
       imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
+      print "[DEBUG] ****** ATTEMPTING TO LOAD NEXT PHOTO ******"
+      print "[DEBUG] Photo Index: "; m.photoIndex
+      print "[DEBUG] Photo ID: "; photoId
+      print "[DEBUG] Image URL: "; imageUrl
+      print "[DEBUG] *****************************************"
       m.mainPhoto.uri = imageUrl
       m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
       m.thumbnailStrip.jumpToItem = m.photoIndex
     else ' Fade in finished
+      print "[DEBUG]   Fade-in finished. Resetting isFading."
       m.isFading = false
     end if
   end if
 end sub
 
 sub onPhotoLoadStateChange()
+    print "[DEBUG] onPhotoLoadStateChange called. Load state: "; m.mainPhoto.loadState
     if m.mainPhoto.loadState = "loaded"
         ' Only run the fade-in if a fade is in progress.
         ' This prevents a blink on the first photo load.
         if m.isFading
+            print "[DEBUG]   Photo loaded. Starting fade-in."
             m.fadeInterpolator.keyValue = [0.0, 1.0]
             m.fadeAnimation.control = "start"
         end if
     else if m.mainPhoto.loadState = "failed"
         ' Handle load failure
         if m.isFading
-            print "MainScene: Photo load failed."
+            print "[DEBUG]   Photo load failed."
             m.isFading = false
         end if
     end if
@@ -148,7 +162,7 @@ end sub
 ' *******************************************************************
 
 sub updateDisplay()
-  print "MainScene: updateDisplay() called." ' <-- ADD THIS
+  print "MainScene: updateDisplay() called. isFading="; m.isFading
   if m.photos.count() = 0 or m.isFading then return
 
   ' -- Ensure index is within bounds
@@ -162,11 +176,16 @@ sub updateDisplay()
     photoData = m.photos[m.photoIndex]
     photoId = photoData.id
     imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
+    print "[DEBUG] ****** ATTEMPTING TO LOAD FIRST PHOTO ******"
+    print "[DEBUG] Photo ID: "; photoId
+    print "[DEBUG] Image URL: "; imageUrl
+    print "[DEBUG] *****************************************"
     m.mainPhoto.uri = imageUrl
     m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
     m.thumbnailStrip.jumpToItem = m.photoIndex
   else
     ' For all subsequent photos, do the fade transition
+    print "[DEBUG]   Starting fade-out."
     m.isFading = true
     m.fadeInterpolator.keyValue = [1.0, 0.0] ' From opaque to transparent
     m.fadeAnimation.control = "start"
@@ -185,6 +204,7 @@ sub updateThumbnails()
 end sub
 
 sub navigate(direction as string)
+  print "[DEBUG] navigate() called. Direction: "; direction
   if m.photos.count() <= 1 then return
 
   if direction = "next"
