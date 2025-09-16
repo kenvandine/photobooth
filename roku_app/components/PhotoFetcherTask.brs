@@ -33,7 +33,7 @@ sub getPhotos()
         response = {}
         if msg.getResponseCode() = 200
           json = ParseJSON(msg.getString())
-          if json <> invalid and isAssocArray(json) and json.doesExist("photos")
+          if json <> invalid and type(json) = "roAssociativeArray" and json.doesExist("photos")
             response.status = "success"
             response.data = json.photos
           else
