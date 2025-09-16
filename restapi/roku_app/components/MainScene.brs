@@ -42,6 +42,7 @@ sub init()
   m.mainPhoto.observeField("loadState", "onPhotoLoadStateChange")
   m.mainPhoto.opacity = 1.0 ' Start fully visible
   m.isFading = false
+  m.isFirstPhoto = true
   m.top.ObserveField("focusedChild", "onFirstShow")
 end sub
 
@@ -95,6 +96,7 @@ sub onPhotosReceived()
         m.photos = response.data
         if m.photos.count() > 0
             m.photoIndex = 0 ' Reset to the first photo
+            m.isFirstPhoto = true ' Reset for new photo list
             updateThumbnails()
             updateDisplay()
             m.slideshowTimer.control = "start"
@@ -123,14 +125,18 @@ end sub
 
 sub onPhotoLoadStateChange()
     if m.mainPhoto.loadState = "loaded"
-        ' Now that the image is loaded, we can fade it in.
-        m.fadeInterpolator.keyValue = [0.0, 1.0]
-        m.fadeAnimation.control = "start"
+        ' Only run the fade-in if a fade is in progress.
+        ' This prevents a blink on the first photo load.
+        if m.isFading
+            m.fadeInterpolator.keyValue = [0.0, 1.0]
+            m.fadeAnimation.control = "start"
+        end if
     else if m.mainPhoto.loadState = "failed"
         ' Handle load failure
-        print "MainScene: Photo load failed."
-        ' For now, just stop the fade process to allow the next photo to load.
-        m.isFading = false
+        if m.isFading
+            print "MainScene: Photo load failed."
+            m.isFading = false
+        end if
     end if
 end sub
 
@@ -148,10 +154,21 @@ sub updateDisplay()
     m.photoIndex = 0
   end if
 
-  ' 1. Start fade-out animation
-  m.isFading = true
-  m.fadeInterpolator.keyValue = [1.0, 0.0] ' From opaque to transparent
-  m.fadeAnimation.control = "start"
+  if m.isFirstPhoto
+    m.isFirstPhoto = false
+    ' Don't fade, just load the first photo directly
+    photoData = m.photos[m.photoIndex]
+    photoId = photoData.id
+    imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
+    m.mainPhoto.uri = imageUrl
+    m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
+    m.thumbnailStrip.jumpToItem = m.photoIndex
+  else
+    ' For all subsequent photos, do the fade transition
+    m.isFading = true
+    m.fadeInterpolator.keyValue = [1.0, 0.0] ' From opaque to transparent
+    m.fadeAnimation.control = "start"
+  end if
 end sub
 
 sub updateThumbnails()
