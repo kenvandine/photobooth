@@ -9,7 +9,7 @@
           color="#00000000"
           width="1200"
           height="675"
-          radius="30" />
+          radius="60" />
       <Poster
           id="mainPhoto"
           width="1180"
