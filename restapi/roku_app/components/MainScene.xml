@@ -4,19 +4,21 @@
 
   <children>
     <!-- Main Photo Display -->
-    <MaskGroup
-        id="mainPhotoMask"
-        maskUri="pkg:/images/rounded_mask.png"
-        maskSize="[1200, 675]"
-        translation="[40, 22]">
-        <Poster
-            id="mainPhoto"
-            width="1200"
-            height="675"
-            loadWidth="1280"
-            loadHeight="720"
-            loadDisplayMode="scaleToFit" />
-    </MaskGroup>
+    <Group translation="[40, 22]">
+      <Rectangle
+          color="#00000000"
+          width="1200"
+          height="675"
+          radius="60" />
+      <Poster
+          id="mainPhoto"
+          width="1180"
+          height="655"
+          loadWidth="1280"
+          loadHeight="720"
+          translation="[10, 10]"
+          loadDisplayMode="scaleToFit" />
+    </Group>
 
     <!-- Photo Counter Label -->
     <Label
