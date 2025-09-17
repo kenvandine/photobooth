@@ -3,6 +3,7 @@
 ' *******************************************************************
 
 sub init()
+  m.top.backgroundColor = "#87CEEB"
   print "MainScene: init() called." ' <-- ADD THIS
   ' -- Find UI components
   m.mainPhoto = m.top.findNode("mainPhoto")
