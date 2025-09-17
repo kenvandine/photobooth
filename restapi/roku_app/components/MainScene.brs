@@ -12,10 +12,20 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
+  ' -- Find animation nodes
+  m.fadeIn = m.top.findNode("fadeIn")
+  m.fadeOut = m.top.findNode("fadeOut")
+
+  ' -- Add observers
+  m.mainPhoto.ObserveField("loadStatus", "onMainPhotoLoaded")
+  m.fadeOut.ObserveField("control", "onFadeOutFinished")
+  m.fadeIn.ObserveField("control", "onFadeInFinished")
+
   ' -- Initialize state
   m.photoIndex = 0
   m.photos = []
   m.isPlaying = true
+  m.isUpdating = false
   m.apiUrl = "http://<YOUR_IP_ADDRESS>:5000/api" ' IMPORTANT: Replace <YOUR_IP_ADDRESS> with the actual IP of the server
 
   ' -- Setup timers
@@ -99,26 +109,49 @@ sub onPhotosReceived()
     end if
 end sub
 
-' *******************************************************************
-' ** Core Logic
-' *******************************************************************
+sub onFadeOutFinished()
+  if m.fadeOut.control = "stop"
+    ' Ensure index is within bounds
+    if m.photoIndex < 0 or m.photoIndex >= m.photos.count()
+      m.photoIndex = 0
+    end if
+
+    ' Set the new URI to trigger the load
+    photoData = m.photos[m.photoIndex]
+    photoId = photoData.id
+    imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
+    m.mainPhoto.uri = imageUrl
+  end if
+end sub
+
+sub onMainPhotoLoaded()
+  if m.mainPhoto.loadStatus = "finished"
+    ' Photo is loaded and ready, fade it in
+    m.fadeIn.control = "start"
+  else if m.mainPhoto.loadStatus = "failed"
+    print "Error: mainPhoto failed to load URI: "; m.mainPhoto.uri
+    ' If load fails, unlock to allow next update
+    m.isUpdating = false
+  end if
+end sub
+
+sub onFadeInFinished()
+  if m.fadeIn.control = "stop"
+    ' Transition is complete, release the lock
+    m.isUpdating = false
+  end if
+end sub
 
 sub updateDisplay()
-  print "MainScene: updateDisplay() called." ' <-- ADD THIS
-  if m.photos.count() = 0 then return
+  if m.isUpdating then return
+  m.isUpdating = true
 
-  ' -- Ensure index is within bounds
-  if m.photoIndex < 0 or m.photoIndex >= m.photos.count()
-    m.photoIndex = 0
-  end if
-
-  photoData = m.photos[m.photoIndex]
-  photoId = photoData.id
-  imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
-
-  m.mainPhoto.uri = imageUrl
+  ' Update counter immediately
   m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
   m.thumbnailStrip.jumpToItem = m.photoIndex
+
+  ' Start the fade out
+  m.fadeOut.control = "start"
 end sub
 
 sub updateThumbnails()
