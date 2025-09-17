@@ -4,14 +4,21 @@
 
   <children>
     <!-- Main Photo Display -->
-    <Poster
-      id="mainPhoto"
-      width="1280"
-      height="720"
-      loadWidth="1280"
-      loadHeight="720"
-      translation="[0, 0]"
-      loadDisplayMode="scaleToFit" />
+    <Group translation="[40, 22]">
+      <Rectangle
+          color="#00000000"
+          width="1200"
+          height="675"
+          radius="60" />
+      <Poster
+          id="mainPhoto"
+          width="1180"
+          height="655"
+          loadWidth="1280"
+          loadHeight="720"
+          translation="[10, 10]"
+          loadDisplayMode="scaleToFit" />
+    </Group>
 
     <!-- Photo Counter Label -->
     <Label
