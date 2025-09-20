@@ -40,6 +40,8 @@ import subprocess
 import re
 import requests
 import argparse
+import subprocess
+import dlib
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -156,6 +158,40 @@ class CameraApp(App):
         super(CameraApp, self).__init__(**kwargs)
         self.device = device
 
+    def ensure_models_downloaded(self):
+        """
+        Checks for the presence of the face detection models and downloads them if missing.
+        """
+        if not os.path.exists("models"):
+            os.makedirs("models")
+
+        # Download the face detection model
+        face_cascade_path = 'models/haarcascade_frontalface_default.xml'
+        if not os.path.exists(face_cascade_path):
+            logging.info("Downloading face detection model...")
+            url = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
+            r = requests.get(url, allow_redirects=True)
+            with open(face_cascade_path, 'wb') as f:
+                f.write(r.content)
+
+        # Download the facial landmark model
+        landmark_predictor_path = 'models/shape_predictor_68_face_landmarks.dat'
+        if not os.path.exists(landmark_predictor_path):
+            logging.info("Downloading facial landmark model...")
+            url = "http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"
+            r = requests.get(url, allow_redirects=True)
+            if r.status_code == 200:
+                with open(landmark_predictor_path + '.bz2', 'wb') as f:
+                    f.write(r.content)
+
+                if os.path.exists(landmark_predictor_path + '.bz2'):
+                    subprocess.run(['bzip2', '-d', landmark_predictor_path + '.bz2'])
+                else:
+                    logging.error("Failed to download facial landmark model.")
+            else:
+                logging.error(f"Failed to download facial landmark model. Status code: {r.status_code}")
+
+
     def get_available_cameras(self):
         """
         Detects and lists available video cameras on the system.
@@ -237,10 +273,25 @@ class CameraApp(App):
         Returns:
             FloatLayout: The root widget of the application.
         """
+        self.ensure_models_downloaded()
         Window.fullscreen = True
         self.birthday_frame = None
         self.frame_files = sorted(glob.glob('assets/frames/*.png'))
         self.current_frame_index = 0
+
+        # Load accessories
+        self.accessories = [
+            ("None", None),
+            ("Hat", cv2.imread('assets/accessories/hat.png', cv2.IMREAD_UNCHANGED)),
+            ("Glasses", cv2.imread('assets/accessories/glasses.png', cv2.IMREAD_UNCHANGED))
+        ]
+        self.current_accessory_index = 0
+
+        # Load face detector and landmark predictor
+        self.face_cascade = cv2.CascadeClassifier('models/haarcascade_frontalface_default.xml')
+        self.landmark_predictor = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
+
+
         if self.frame_files:
             # Start with a random frame
             self.current_frame_index = random.randint(0, len(self.frame_files) - 1)
@@ -318,6 +369,16 @@ class CameraApp(App):
         )
         self.frame_switch_button.bind(on_press=self.change_birthday_frame)
         root.add_widget(self.frame_switch_button)
+
+        # A button to change the accessory
+        self.accessory_switch_button = RoundImageButton(
+            source='assets/accessories_icon.png',
+            size_hint=(None, None),
+            size=(32, 32),
+            pos_hint={'right': 0.95, 'y': 0.15}
+        )
+        self.accessory_switch_button.bind(on_press=self.change_accessory)
+        root.add_widget(self.accessory_switch_button)
 
         # Add a label for the countdown timer
         self.countdown_label = Label(
@@ -475,6 +536,14 @@ class CameraApp(App):
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
         logging.info(f"Changed birthday frame to: {frame_path}")
 
+    def change_accessory(self, *args):
+        """
+        Cycles to the next available accessory.
+        """
+        self.current_accessory_index = (self.current_accessory_index + 1) % len(self.accessories)
+        accessory_name, _ = self.accessories[self.current_accessory_index]
+        logging.info(f"Changed accessory to: {accessory_name}")
+
     def on_resolution_select(self, spinner, text):
         """
         Event handler for resolution selection from the spinner.
@@ -509,6 +578,68 @@ class CameraApp(App):
         blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
         return blended_frame.astype('uint8')
 
+    def _overlay_image(self, background, overlay, x, y, w, h):
+        """
+        Overlays a transparent image on a background.
+        """
+        overlay_resized = cv2.resize(overlay, (w, h))
+        overlay_rgb = overlay_resized[:, :, :3]
+        alpha = overlay_resized[:, :, 3] / 255.0
+
+        # Ensure x, y, w, h are within the bounds of the background
+        x_end = min(x + w, background.shape[1])
+        y_end = min(y + h, background.shape[0])
+        x_start = max(x, 0)
+        y_start = max(y, 0)
+
+        # Region of interest
+        roi = background[y_start:y_end, x_start:x_end]
+
+        # Adjust overlay and alpha to match ROI size
+        overlay_rgb = overlay_rgb[:roi.shape[0], :roi.shape[1]]
+        alpha = alpha[:roi.shape[0], :roi.shape[1]]
+
+        if roi.shape[0] > 0 and roi.shape[1] > 0:
+            blended_roi = (1 - alpha)[:, :, None] * roi + alpha[:, :, None] * overlay_rgb
+            background[y_start:y_end, x_start:x_end] = blended_roi.astype('uint8')
+
+        return background
+
+    def _apply_accessories(self, frame):
+        """
+        Applies the selected accessory to the detected faces.
+        """
+        accessory_name, accessory_image = self.accessories[self.current_accessory_index]
+        if accessory_name == "None":
+            return frame
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+
+        for (x, y, w, h) in faces:
+            dlib_rect = dlib.rectangle(int(x), int(y), int(x + w), int(y + h))
+            landmarks = self.landmark_predictor(gray, dlib_rect)
+
+            if accessory_name == "Hat":
+                # Position the hat on top of the head
+                hat_h = int(h * 0.5)
+                hat_w = int(w * 1.2)
+                hat_x = x - int(w * 0.1)
+                hat_y = y - int(h * 0.4)
+                frame = self._overlay_image(frame, accessory_image, hat_x, hat_y, hat_w, hat_h)
+
+            elif accessory_name == "Glasses":
+                # Position the glasses on the eyes
+                p1 = (landmarks.part(36).x, landmarks.part(36).y)
+                p2 = (landmarks.part(45).x, landmarks.part(45).y)
+                glasses_w = int(abs(p2[0] - p1[0]) * 1.5)
+                glasses_h = int(glasses_w * (accessory_image.shape[0] / accessory_image.shape[1]))
+                glasses_x = p1[0] - int(glasses_w * 0.25)
+                glasses_y = p1[1] - int(glasses_h * 0.5)
+                frame = self._overlay_image(frame, accessory_image, glasses_x, glasses_y, glasses_w, glasses_h)
+
+        return frame
+
     def update(self, dt):
         """
         Updates the camera view with a new frame.
@@ -522,6 +653,7 @@ class CameraApp(App):
             return
         ret, frame = self.capture.read()
         if ret:
+            frame = self._apply_accessories(frame)
             frame = self._apply_overlay(frame)
 
             # Convert the BGR frame from OpenCV to RGB
@@ -582,8 +714,9 @@ class CameraApp(App):
             os.makedirs("photos")
         ret, frame = self.capture.read()
         if ret:
-            # Apply the overlay before saving
-            frame_with_overlay = self._apply_overlay(frame)
+            # Apply accessories and overlay before saving
+            frame_with_accessories = self._apply_accessories(frame)
+            frame_with_overlay = self._apply_overlay(frame_with_accessories)
             now = datetime.now()
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
             cv2.imwrite(filename, frame_with_overlay)

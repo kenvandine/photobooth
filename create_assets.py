@@ -132,8 +132,58 @@ def create_change_frame_icon_if_needed():
         draw.rectangle([34, 22, 54, 42], fill=colors[2])
         img.save(icon_path)
 
+def create_accessories_if_needed():
+    """
+    Creates the accessory images if they don't exist.
+    """
+    if not os.path.exists('assets/accessories'):
+        os.makedirs('assets/accessories')
+
+    hat_path = 'assets/accessories/hat.png'
+    if not os.path.exists(hat_path):
+        logging.info(f"Creating hat image at {hat_path}")
+        width, height = 100, 50
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([10, 20, 90, 30], fill="black")
+        draw.rectangle([30, 0, 70, 20], fill="black")
+        img.save(hat_path)
+
+    glasses_path = 'assets/accessories/glasses.png'
+    if not os.path.exists(glasses_path):
+        logging.info(f"Creating glasses image at {glasses_path}")
+        width, height = 100, 30
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse([0, 0, 40, 30], outline="black", width=3)
+        draw.ellipse([60, 0, 100, 30], outline="black", width=3)
+        draw.line([40, 15, 60, 15], fill="black", width=3)
+        img.save(glasses_path)
+
+def create_accessories_icon_if_needed():
+    """
+    Creates a simple icon for the accessories button if it doesn't exist.
+    """
+    icon_path = 'assets/accessories_icon.png'
+    if not os.path.exists(icon_path):
+        logging.info(f"Creating accessories icon at {icon_path}")
+        width, height = 64, 64
+        img = PILImage.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # A simple design: a top hat and glasses
+        # Hat
+        draw.rectangle([16, 10, 48, 20], fill="black")
+        draw.rectangle([24, 20, 40, 30], fill="black")
+        # Glasses
+        draw.ellipse([10, 35, 30, 50], outline="black", width=3)
+        draw.ellipse([34, 35, 54, 50], outline="black", width=3)
+        draw.line([30, 42, 34, 42], fill="black", width=3)
+        img.save(icon_path)
+
 if __name__ == '__main__':
     create_default_banner_if_needed()
     create_birthday_frames_if_needed()
     create_change_frame_icon_if_needed()
+    create_accessories_icon_if_needed()
+    create_accessories_if_needed()
     logging.info("All assets created successfully.")
