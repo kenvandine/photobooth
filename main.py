@@ -346,14 +346,23 @@ class CameraApp(App):
         self.camera_view = Image()
         main_layout.add_widget(self.camera_view)
 
-        # Detect cameras and handle the case where none are found
+        # Always get the full list of cameras with their types
+        all_cameras = self.get_available_cameras()
+
         if self.device is not None:
-            # When a device is specified, we can't know the camera type for sure.
-            # On a Pi, V4L2 is a safe bet. Otherwise, use the default.
-            camera_type = 'v4l2' if is_raspberry_pi() else 'default'
-            self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'type': camera_type}}
+            # If a device is specified, find it in the list of all cameras
+            self.available_cameras = {}
+            for name, info in all_cameras.items():
+                if info['index'] == self.device:
+                    self.available_cameras[name] = info
+                    break
+            if not self.available_cameras:
+                # If the specified device was not found, fallback to using it directly
+                logging.warning(f"Device {self.device} not found in v4l2-ctl list. Falling back to direct use.")
+                camera_type = 'v4l2' if is_raspberry_pi() else 'default'
+                self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'type': camera_type}}
         else:
-            self.available_cameras = self.get_available_cameras()
+            self.available_cameras = all_cameras
 
         if not self.available_cameras:
             logging.error("No cameras found!")
