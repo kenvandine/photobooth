@@ -68,7 +68,10 @@ def is_raspberry_pi():
 class PiCamera2Wrapper:
     def __init__(self, camera_num=0, resolution=(640, 480)):
         if Picamera2 is None:
-            raise ImportError("picamera2 is not installed.")
+            msg = "picamera2 library not found or failed to import. " \
+                  "Please ensure it is installed in the correct Python environment " \
+                  "and that all its system dependencies are met."
+            raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
         config = self.picam2.create_preview_configuration(main={"size": resolution})
         self.picam2.configure(config)
@@ -218,8 +221,17 @@ class CameraApp(App):
         best backend for each camera.
         """
         cameras = {}
-        on_pi = is_raspberry_pi()
+        if not is_raspberry_pi():
+            # Fallback for non-Pi systems
+            for i in range(10):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
+                    cap.release()
+            logging.info(f"Available cameras (non-Pi): {cameras}")
+            return cameras
 
+        # Raspberry Pi specific detection
         try:
             output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
             current_camera_name = ""
@@ -227,34 +239,29 @@ class CameraApp(App):
                 if not line.startswith('\t'):
                     current_camera_name = line.strip().split(' (')[0]
                 elif '/dev/video' in line:
-                    match = re.search(r'/dev/video(\d+)', line)
-                    if not match:
-                        continue
+                    camera_type = None
+                    if 'unicam' in current_camera_name.lower():
+                        camera_type = 'picamera'
+                    elif 'usb' in current_camera_name.lower():
+                        camera_type = 'v4l2'
 
-                    index = int(match.group(1))
-                    camera_type = 'default'
-
-                    if on_pi:
-                        if 'unicam' in current_camera_name.lower() or 'bcm2835' in current_camera_name.lower():
-                            camera_type = 'picamera'
-                        else:
-                            camera_type = 'v4l2'
-
-                    logging.info(f"Camera '{current_camera_name}' (index {index}) detected as type '{camera_type}'")
-
-                    # Check if the camera can be opened
-                    if camera_type == 'picamera':
-                        if Picamera2 is not None:
-                            cameras[current_camera_name] = {'index': index, 'type': camera_type}
-                    else:
-                        backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
-                        cap = cv2.VideoCapture(index, backend)
-                        if cap.isOpened():
-                            cameras[current_camera_name] = {'index': index, 'type': camera_type}
-                            cap.release()
-
+                    if camera_type:
+                        match = re.search(r'/dev/video(\d+)', line)
+                        if match:
+                            index = int(match.group(1))
+                            # Use the device name and index to create a unique key
+                            unique_key = f"{current_camera_name} ({index})"
+                            if unique_key not in cameras:
+                                if camera_type == 'picamera' and Picamera2 is None:
+                                    logging.warning("PiCamera detected, but picamera2 library is not installed.")
+                                    continue
+                                cameras[unique_key] = {'index': index, 'type': camera_type}
         except (subprocess.CalledProcessError, FileNotFoundError):
-            logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
+            logging.warning("v4l2-ctl not found or failed. Cannot perform Pi-specific camera detection.")
+
+        # Fallback if v4l2-ctl fails or finds no specific cameras
+        if not cameras:
+            logging.warning("No specific Pi cameras found, falling back to default enumeration.")
             for i in range(10):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
