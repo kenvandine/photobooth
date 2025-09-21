@@ -5,6 +5,7 @@ import json
 import base64
 from pathlib import Path
 from io import BytesIO
+from PIL import Image
 
 # Add the parent directory to the Python path to allow module imports
 import sys
@@ -37,7 +38,8 @@ def client():
 def create_dummy_image(filename="test.jpg"):
     """Creates a dummy image file for testing."""
     file = BytesIO()
-    file.write(b"dummy image data")
+    image = Image.new('RGB', (100, 100), color = 'red')
+    image.save(file, 'jpeg')
     file.name = filename
     file.seek(0)
     return file
@@ -159,12 +161,14 @@ def test_get_photo_metadata_not_found(client):
 def test_download_photo(client):
     """Test downloading a photo file."""
     image = create_dummy_image()
+    image_data = image.getvalue()
+    image.seek(0)
     response = client.post('/api/photos', data={'file': (image, image.name)}, content_type='multipart/form-data')
     photo_id = response.get_json()['photo_id']
 
     response = client.get(f'/api/photos/{photo_id}/file')
     assert response.status_code == 200
-    assert response.data == b"dummy image data"
+    assert response.data == image_data
 
 def test_get_photo_base64(client):
     """Test getting a photo as a base64 string."""
