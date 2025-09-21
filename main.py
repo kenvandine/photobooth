@@ -346,8 +346,10 @@ class CameraApp(App):
 
         # Detect cameras and handle the case where none are found
         if self.device is not None:
-            backend = cv2.CAP_V4L2 if is_raspberry_pi() else cv2.CAP_ANY
-            self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'backend': backend}}
+            # When a device is specified, we can't know the camera type for sure.
+            # On a Pi, V4L2 is a safe bet. Otherwise, use the default.
+            camera_type = 'v4l2' if is_raspberry_pi() else 'default'
+            self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'type': camera_type}}
         else:
             self.available_cameras = self.get_available_cameras()
 
