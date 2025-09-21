@@ -359,7 +359,8 @@ class CameraApp(App):
             if not self.available_cameras:
                 # If the specified device was not found, fallback to using it directly
                 logging.warning(f"Device {self.device} not found in v4l2-ctl list. Falling back to direct use.")
-                camera_type = 'v4l2' if is_raspberry_pi() else 'default'
+                # When a device is specified on a Pi, assume it's the Pi Camera.
+                camera_type = 'picamera' if is_raspberry_pi() else 'default'
                 self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'type': camera_type}}
         else:
             self.available_cameras = all_cameras
