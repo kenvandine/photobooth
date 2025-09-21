@@ -51,6 +51,16 @@ PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
 RESOLUTION = os.environ.get('RESOLUTION')
 # --- END CONFIGURATION ---
 
+def is_raspberry_pi():
+    """Checks if the system is a Raspberry Pi."""
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            if 'raspberry pi' in f.read().lower():
+                return True
+    except Exception:
+        pass
+    return False
+
 # A list of common resolutions to test
 STANDARD_RESOLUTIONS = [
     (640, 480),
@@ -161,18 +171,13 @@ class CameraApp(App):
 
     def get_available_cameras(self):
         """
-        Detects and lists available video cameras on the system.
-
-        Tries to use `v4l2-ctl` for more descriptive camera names on Linux.
-        If `v4l2-ctl` is not available or fails, it falls back to a simple
-        index-based scan.
-
-        Returns:
-            dict: A dictionary mapping camera names to their device indices.
+        Detects and lists available video cameras on the system, determining the
+        best backend for each camera.
         """
         cameras = {}
+        on_pi = is_raspberry_pi()
+
         try:
-            # Use v4l2-ctl to get a list of cameras with descriptive names
             output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
             current_camera_name = ""
             for line in output.splitlines():
@@ -180,25 +185,42 @@ class CameraApp(App):
                     current_camera_name = line.strip().split(' (')[0]
                 elif '/dev/video' in line:
                     match = re.search(r'/dev/video(\d+)', line)
-                    if match:
-                        index = int(match.group(1))
-                        # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index)
+                    if not match:
+                        continue
+
+                    index = int(match.group(1))
+                    backend = cv2.CAP_ANY
+
+                    if on_pi:
+                        if 'unicam' in current_camera_name.lower() or 'bcm2835' in current_camera_name.lower():
+                            backend = cv2.CAP_PICAMERA
+                        else:
+                            backend = cv2.CAP_V4L2
+
+                    # Check if the camera can be opened with the selected backend
+                    cap = cv2.VideoCapture(index, backend)
+                    if cap.isOpened():
+                        cameras[current_camera_name] = {'index': index, 'backend': backend}
+                        cap.release()
+                    elif backend != cv2.CAP_ANY:
+                        # Fallback to default backend if preferred one fails
+                        cap = cv2.VideoCapture(index, cv2.CAP_ANY)
                         if cap.isOpened():
-                            cameras[current_camera_name] = index
+                            cameras[current_camera_name] = {'index': index, 'backend': cv2.CAP_ANY}
                             cap.release()
+
         except (subprocess.CalledProcessError, FileNotFoundError):
-            # Fallback for non-Linux systems or if v4l2-ctl is not installed
             logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
-            for i in range(10):  # Check first 10 indices
+            for i in range(10):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
-                    cameras[f"Camera {i}"] = i
+                    cameras[f"Camera {i}"] = {'index': i, 'backend': cv2.CAP_ANY}
                     cap.release()
+
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
-    def get_supported_resolutions(self, camera_index):
+    def get_supported_resolutions(self, camera_index, backend=cv2.CAP_ANY):
         """
         Determines the supported resolutions for a given camera.
 
@@ -207,13 +229,14 @@ class CameraApp(App):
 
         Args:
             camera_index (int): The index of the camera to check.
+            backend (int): The OpenCV backend to use for capturing.
 
         Returns:
             list: A list of strings, where each string represents a
                   supported resolution (e.g., "1920x1080").
         """
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        cap = cv2.VideoCapture(camera_index, backend)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
@@ -275,7 +298,8 @@ class CameraApp(App):
 
         # Detect cameras and handle the case where none are found
         if self.device is not None:
-            self.available_cameras = {f"Device: {self.device}": self.device}
+            backend = cv2.CAP_V4L2 if is_raspberry_pi() else cv2.CAP_ANY
+            self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'backend': backend}}
         else:
             self.available_cameras = self.get_available_cameras()
 
@@ -380,15 +404,17 @@ class CameraApp(App):
         Args:
             camera_name (str): The name of the camera to switch to.
         """
-        selected_index = self.available_cameras[camera_name]
-        logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
+        camera_info = self.available_cameras[camera_name]
+        selected_index = camera_info['index']
+        backend = camera_info['backend']
+        logging.info(f"Switching to camera: {camera_name} (index: {selected_index}, backend: {backend})")
 
         # Release the previous camera capture if it exists
         if hasattr(self, 'capture') and self.capture.isOpened():
             self.capture.release()
 
         # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index)
+        resolutions = self.get_supported_resolutions(selected_index, backend)
         self.resolution_selector.values = resolutions
         if resolutions:
             if not self.resolution or self.resolution not in resolutions:
@@ -396,14 +422,14 @@ class CameraApp(App):
 
             self.resolution_selector.text = self.resolution
             w, h = map(int, self.resolution.split('x'))
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = cv2.VideoCapture(selected_index, backend)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            logging.info(f"Set camera {selected_index} to {w}x{h}")
+            logging.info(f"Set camera {selected_index} to {w}x{h} with backend {backend}")
         else:
             # Fallback if no specific resolutions are confirmed
             logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index)
+            self.capture = cv2.VideoCapture(selected_index, backend)
             self.resolution_selector.text = 'Default'
 
     def on_camera_select(self, camera_name):
