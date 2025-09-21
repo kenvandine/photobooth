@@ -240,6 +240,8 @@ class CameraApp(App):
                         else:
                             camera_type = 'v4l2'
 
+                    logging.info(f"Camera '{current_camera_name}' (index {index}) detected as type '{camera_type}'")
+
                     # Check if the camera can be opened
                     if camera_type == 'picamera':
                         if Picamera2 is not None:
