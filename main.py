@@ -73,7 +73,7 @@ class PiCamera2Wrapper:
                   "and that all its system dependencies are met."
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
-        config = self.picam2.create_preview_configuration(main={"size": resolution})
+        config = self.picam2.create_preview_configuration(main={"format": "RGB888", "size": resolution})
         self.picam2.configure(config)
         self.picam2.start()
         self._is_opened = True
