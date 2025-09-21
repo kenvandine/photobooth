@@ -48,6 +48,7 @@ logging.basicConfig(level=logging.INFO)
 # --- CONFIGURATION ---
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
 PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
+RESOLUTION = os.environ.get('RESOLUTION')
 # --- END CONFIGURATION ---
 
 # A list of common resolutions to test
@@ -57,6 +58,7 @@ STANDARD_RESOLUTIONS = [
     (1024, 768),
     (1280, 720),
     (1920, 1080),
+    (2592, 1944),
     (3840, 2160)
 ]
 
@@ -152,9 +154,10 @@ class CameraApp(App):
     and photo capture logic. It builds the GUI using Kivy widgets and manages
     camera selection, resolution changes, and the capture process.
     """
-    def __init__(self, device=None, **kwargs):
+    def __init__(self, device=None, resolution=None, **kwargs):
         super(CameraApp, self).__init__(**kwargs)
         self.device = device
+        self.resolution = resolution
 
     def get_available_cameras(self):
         """
@@ -388,8 +391,11 @@ class CameraApp(App):
         resolutions = self.get_supported_resolutions(selected_index)
         self.resolution_selector.values = resolutions
         if resolutions:
-            self.resolution_selector.text = resolutions[-1]  # Default to highest
-            w, h = map(int, resolutions[-1].split('x'))
+            if not self.resolution or self.resolution not in resolutions:
+                self.resolution = resolutions[-1] # Default to highest
+
+            self.resolution_selector.text = self.resolution
+            w, h = map(int, self.resolution.split('x'))
             self.capture = cv2.VideoCapture(selected_index)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
@@ -632,4 +638,4 @@ if __name__ == '__main__':
         match = re.search(r'\d+$', device)
         if match:
             device = int(match.group(0))
-    CameraApp(device=device).run()
+    CameraApp(device=device, resolution=RESOLUTION).run()
