@@ -40,6 +40,10 @@ import subprocess
 import re
 import requests
 import argparse
+try:
+    from picamera2 import Picamera2
+except ImportError:
+    Picamera2 = None
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -60,6 +64,44 @@ def is_raspberry_pi():
     except Exception:
         pass
     return False
+
+class PiCamera2Wrapper:
+    def __init__(self, camera_num=0, resolution=(640, 480)):
+        if Picamera2 is None:
+            raise ImportError("picamera2 is not installed.")
+        self.picam2 = Picamera2(camera_num=camera_num)
+        config = self.picam2.create_preview_configuration(main={"size": resolution})
+        self.picam2.configure(config)
+        self.picam2.start()
+        self._is_opened = True
+
+    def isOpened(self):
+        return self._is_opened
+
+    def read(self):
+        if not self._is_opened:
+            return False, None
+        # capture_array returns a numpy array in RGB format
+        frame = self.picam2.capture_array()
+        return True, frame
+
+    def release(self):
+        if self._is_opened:
+            self.picam2.stop()
+            self._is_opened = False
+
+    def set(self, prop, value):
+        # This is a dummy implementation for now.
+        # The picamera2 library uses a different method for setting controls.
+        logging.info(f"PiCamera2Wrapper: set property {prop} to {value} (not implemented)")
+        return True
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return self.picam2.camera_config['main']['size'][0]
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return self.picam2.camera_config['main']['size'][1]
+        return 0
 
 # A list of common resolutions to test
 STANDARD_RESOLUTIONS = [
@@ -168,6 +210,7 @@ class CameraApp(App):
         super(CameraApp, self).__init__(**kwargs)
         self.device = device
         self.resolution = resolution
+        self.camera_type = 'default'
 
     def get_available_cameras(self):
         """
@@ -189,24 +232,23 @@ class CameraApp(App):
                         continue
 
                     index = int(match.group(1))
-                    backend = cv2.CAP_ANY
+                    camera_type = 'default'
 
                     if on_pi:
                         if 'unicam' in current_camera_name.lower() or 'bcm2835' in current_camera_name.lower():
-                            backend = cv2.CAP_PICAMERA
+                            camera_type = 'picamera'
                         else:
-                            backend = cv2.CAP_V4L2
+                            camera_type = 'v4l2'
 
-                    # Check if the camera can be opened with the selected backend
-                    cap = cv2.VideoCapture(index, backend)
-                    if cap.isOpened():
-                        cameras[current_camera_name] = {'index': index, 'backend': backend}
-                        cap.release()
-                    elif backend != cv2.CAP_ANY:
-                        # Fallback to default backend if preferred one fails
-                        cap = cv2.VideoCapture(index, cv2.CAP_ANY)
+                    # Check if the camera can be opened
+                    if camera_type == 'picamera':
+                        if Picamera2 is not None:
+                            cameras[current_camera_name] = {'index': index, 'type': camera_type}
+                    else:
+                        backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
+                        cap = cv2.VideoCapture(index, backend)
                         if cap.isOpened():
-                            cameras[current_camera_name] = {'index': index, 'backend': cv2.CAP_ANY}
+                            cameras[current_camera_name] = {'index': index, 'type': camera_type}
                             cap.release()
 
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -214,13 +256,13 @@ class CameraApp(App):
             for i in range(10):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
-                    cameras[f"Camera {i}"] = {'index': i, 'backend': cv2.CAP_ANY}
+                    cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
                     cap.release()
 
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
-    def get_supported_resolutions(self, camera_index, backend=cv2.CAP_ANY):
+    def get_supported_resolutions(self, camera_index, camera_type='default'):
         """
         Determines the supported resolutions for a given camera.
 
@@ -229,13 +271,19 @@ class CameraApp(App):
 
         Args:
             camera_index (int): The index of the camera to check.
-            backend (int): The OpenCV backend to use for capturing.
+            camera_type (str): The type of camera ('picamera', 'v4l2', 'default').
 
         Returns:
             list: A list of strings, where each string represents a
                   supported resolution (e.g., "1920x1080").
         """
+        if camera_type == 'picamera':
+            # For PiCamera2, we assume it supports all standard resolutions.
+            # A more advanced implementation could query sensor modes.
+            return [f"{w}x{h}" for w, h in STANDARD_RESOLUTIONS]
+
         supported_resolutions = []
+        backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
         cap = cv2.VideoCapture(camera_index, backend)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
@@ -406,31 +454,34 @@ class CameraApp(App):
         """
         camera_info = self.available_cameras[camera_name]
         selected_index = camera_info['index']
-        backend = camera_info['backend']
-        logging.info(f"Switching to camera: {camera_name} (index: {selected_index}, backend: {backend})")
+        camera_type = camera_info['type']
+        self.camera_type = camera_type
+        logging.info(f"Switching to camera: {camera_name} (index: {selected_index}, type: {camera_type})")
 
         # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture.isOpened():
+        if hasattr(self, 'capture') and self.capture:
             self.capture.release()
 
         # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index, backend)
+        resolutions = self.get_supported_resolutions(selected_index, camera_type)
         self.resolution_selector.values = resolutions
+
+        w, h = (1920, 1080) # Default resolution
         if resolutions:
             if not self.resolution or self.resolution not in resolutions:
                 self.resolution = resolutions[-1] # Default to highest
-
             self.resolution_selector.text = self.resolution
             w, h = map(int, self.resolution.split('x'))
+
+        if camera_type == 'picamera':
+            self.capture = PiCamera2Wrapper(camera_num=selected_index, resolution=(w, h))
+        else:
+            backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
             self.capture = cv2.VideoCapture(selected_index, backend)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            logging.info(f"Set camera {selected_index} to {w}x{h} with backend {backend}")
-        else:
-            # Fallback if no specific resolutions are confirmed
-            logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index, backend)
-            self.resolution_selector.text = 'Default'
+
+        logging.info(f"Set camera {selected_index} to {w}x{h} with type {camera_type}")
 
     def on_camera_select(self, camera_name):
         """
@@ -556,8 +607,12 @@ class CameraApp(App):
         if ret:
             frame = self._apply_overlay(frame)
 
-            # Convert the BGR frame from OpenCV to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if self.camera_type != 'picamera':
+                # Convert the BGR frame from OpenCV to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            else:
+                # Frame from PiCamera2 is already RGB
+                frame_rgb = frame
             # Flip the frame vertically (otherwise it's upside down)
             buf1 = cv2.flip(frame_rgb, 0)
             # Convert the frame to a 1D byte buffer
