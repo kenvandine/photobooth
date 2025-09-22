@@ -70,7 +70,7 @@ def is_raspberry_pi():
     return False
 
 class PiCamera2Wrapper:
-    def __init__(self, camera_num=0, preview_resolution=(640, 480), still_resolution=None):
+    def __init__(self, camera_num=0, preview_resolution=(640, 480), main_resolution=None):
         if Picamera2 is None:
             msg = "picamera2 library not found or failed to import. " \
                   "Please ensure it is installed in the correct Python environment " \
@@ -78,8 +78,9 @@ class PiCamera2Wrapper:
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
         config = self.picam2.create_preview_configuration(
-            main={"format": "BGR888", "size": preview_resolution},
-            still={"format": "BGR888", "size": still_resolution or preview_resolution}
+            main={"format": "BGR888", "size": main_resolution or preview_resolution},
+            lores={"format": "BGR888", "size": preview_resolution},
+            display="lores"
         )
         self.picam2.configure(config)
         self.picam2.start()
@@ -87,8 +88,8 @@ class PiCamera2Wrapper:
 
     def capture_still(self):
         """Captures a high-resolution still image."""
-        # This switches to the "still" stream, captures, and switches back
-        frame = self.picam2.switch_mode_and_capture_array("still")
+        # This switches to the "main" stream, captures, and switches back
+        frame = self.picam2.switch_mode_and_capture_array("main")
         # The captured frame is RGB, convert to BGR for consistency
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return True, frame
@@ -590,9 +591,9 @@ class CameraApp(App):
             self.capture = PiCamera2Wrapper(
                 camera_num=selected_index,
                 preview_resolution=(preview_w, preview_h),
-                still_resolution=(still_w, still_h)
+                main_resolution=(still_w, still_h)
             )
-            logging.info(f"PiCamera: Preview set to {preview_w}x{preview_h}, Still set to {still_w}x{still_h}")
+            logging.info(f"PiCamera: Preview set to {preview_w}x{preview_h}, Main set to {still_w}x{still_h}")
         else:
             # For other cameras, use the selected resolution for everything
             backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
