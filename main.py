@@ -685,17 +685,22 @@ class CameraApp(App):
         if self.birthday_frame is None:
             return frame
 
-        # Resize frame overlay to match camera frame size
         h, w, _ = frame.shape
-        overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+        if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
+            logging.info(f"Creating new overlay cache for resolution {w}x{h}.")
+            self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
-        # Separate the overlay into color and alpha channels
-        overlay_rgb = overlay_resized[:, :, :3]
-        alpha = overlay_resized[:, :, 3] / 255.0
+        overlay_img = self.resized_overlay[:,:,0:3] # BGR channels
+        mask = self.resized_overlay[:,:,3] # Alpha channel
 
-        # Blend the overlay with the frame
-        blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
-        return blended_frame.astype('uint8')
+        # Black-out the area of the overlay in the background frame
+        background = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
+
+        # Take only the region of the overlay image.
+        foreground = cv2.bitwise_and(overlay_img, overlay_img, mask=mask)
+
+        # Add the two images together
+        return cv2.add(background, foreground)
 
     def update(self, dt):
         """
