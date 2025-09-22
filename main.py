@@ -282,6 +282,7 @@ class CameraApp(App):
         self.device = device
         self.resolution = resolution
         self.camera_type = 'default'
+        self.resized_overlay = None
 
     def get_available_cameras(self):
         """
