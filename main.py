@@ -99,8 +99,18 @@ class PiCamera2Wrapper:
     def set(self, prop, value):
         # This is a dummy implementation for now.
         # The picamera2 library uses a different method for setting controls.
-        logging.info(f"PiCamera2Wrapper: set property {prop} to {value} (not implemented)")
         return True
+
+    def set_resolution(self, width, height):
+        """
+        Sets the camera resolution for the PiCamera2.
+        This involves stopping, reconfiguring, and restarting the camera.
+        """
+        self.picam2.stop()
+        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": (width, height)})
+        self.picam2.configure(config)
+        self.picam2.start()
+        logging.info(f"PiCamera2 resolution set to {width}x{height}")
 
     def get(self, prop):
         if prop == cv2.CAP_PROP_FRAME_WIDTH:
@@ -598,8 +608,11 @@ class CameraApp(App):
         if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
             return
         w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        if self.camera_type == 'picamera':
+            self.capture.set_resolution(w, h)
+        else:
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         logging.info(f"Invalidating overlay cache due to resolution change to {w}x{h}.")
         self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Resolution changed to {w}x{h}")
