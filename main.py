@@ -73,7 +73,7 @@ class PiCamera2Wrapper:
                   "and that all its system dependencies are met."
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
-        config = self.picam2.create_preview_configuration(main={"format": "RGB888", "size": resolution})
+        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": resolution})
         self.picam2.configure(config)
         self.picam2.start()
         self._is_opened = True
@@ -84,8 +84,11 @@ class PiCamera2Wrapper:
     def read(self):
         if not self._is_opened:
             return False, None
-        # capture_array returns a numpy array in RGB format.
+        # Despite configuring for BGR888, picamera2 seems to return an
+        # RGB frame. To ensure consistency with cv2.VideoCapture, we
+        # convert it to BGR here.
         frame = self.picam2.capture_array()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return True, frame
 
     def release(self):
@@ -630,12 +633,7 @@ class CameraApp(App):
             frame = self._apply_overlay(frame)
 
             # Convert the final BGR frame to RGB for Kivy texture
-            if self.camera_type == 'picamera':
-                # Frame is already RGB
-                frame_rgb = frame
-            else:
-                # Frame is BGR, convert to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             # Flip the frame vertically (otherwise it's upside down)
             buf1 = cv2.flip(frame_rgb, 0)
             # Convert the frame to a 1D byte buffer
@@ -695,16 +693,10 @@ class CameraApp(App):
             # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
             frame_with_overlay = self._apply_overlay(frame)
 
-            # If the camera is a picamera, the frame is RGB, but imwrite expects BGR.
-            if self.camera_type == 'picamera':
-                frame_to_save = cv2.cvtColor(frame_with_overlay, cv2.COLOR_RGB2BGR)
-            else:
-                frame_to_save = frame_with_overlay
-
             now = datetime.now()
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
             # cv2.imwrite expects BGR, which is what we have.
-            cv2.imwrite(filename, frame_to_save)
+            cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
 
