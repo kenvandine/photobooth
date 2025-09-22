@@ -70,17 +70,28 @@ def is_raspberry_pi():
     return False
 
 class PiCamera2Wrapper:
-    def __init__(self, camera_num=0, resolution=(640, 480)):
+    def __init__(self, camera_num=0, preview_resolution=(640, 480), still_resolution=None):
         if Picamera2 is None:
             msg = "picamera2 library not found or failed to import. " \
                   "Please ensure it is installed in the correct Python environment " \
                   "and that all its system dependencies are met."
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
-        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": resolution})
+        config = self.picam2.create_preview_configuration(
+            main={"format": "BGR888", "size": preview_resolution},
+            still={"format": "BGR888", "size": still_resolution or preview_resolution}
+        )
         self.picam2.configure(config)
         self.picam2.start()
         self._is_opened = True
+
+    def capture_still(self):
+        """Captures a high-resolution still image."""
+        # This switches to the "still" stream, captures, and switches back
+        frame = self.picam2.switch_mode_and_capture_array("still")
+        # The captured frame is RGB, convert to BGR for consistency
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return True, frame
 
     def isOpened(self):
         return self._is_opened
@@ -573,8 +584,17 @@ class CameraApp(App):
             w, h = map(int, self.resolution.split('x'))
 
         if camera_type == 'picamera':
-            self.capture = PiCamera2Wrapper(camera_num=selected_index, resolution=(w, h))
+            # For PiCamera, we use a low-res preview and a high-res still capture
+            preview_w, preview_h = (640, 480)
+            still_w, still_h = w, h
+            self.capture = PiCamera2Wrapper(
+                camera_num=selected_index,
+                preview_resolution=(preview_w, preview_h),
+                still_resolution=(still_w, still_h)
+            )
+            logging.info(f"PiCamera: Preview set to {preview_w}x{preview_h}, Still set to {still_w}x{still_h}")
         else:
+            # For other cameras, use the selected resolution for everything
             backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
             self.capture = cv2.VideoCapture(selected_index, backend)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
@@ -765,7 +785,13 @@ class CameraApp(App):
         # Create the 'photos' directory if it doesn't exist
         if not os.path.exists("photos"):
             os.makedirs("photos")
-        ret, frame = self.capture.read()
+
+        # Use the high-resolution capture method if available
+        if hasattr(self.capture, 'capture_still'):
+            logging.info("Capturing high-resolution still image.")
+            ret, frame = self.capture.capture_still()
+        else:
+            ret, frame = self.capture.read()
         if ret:
             # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
             frame_with_overlay = self._apply_overlay(frame)
