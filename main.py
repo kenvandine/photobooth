@@ -70,14 +70,17 @@ def is_raspberry_pi():
     return False
 
 class PiCamera2Wrapper:
-    def __init__(self, camera_num=0, resolution=(640, 480)):
+    def __init__(self, camera_num=0, still_resolution=(1920, 1080), preview_resolution=(640, 480)):
         if Picamera2 is None:
             msg = "picamera2 library not found or failed to import. " \
                   "Please ensure it is installed in the correct Python environment " \
                   "and that all its system dependencies are met."
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
-        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": resolution})
+        config = self.picam2.create_preview_configuration(
+            main={"format": "BGR888", "size": still_resolution},
+            lores={"format": "BGR888", "size": preview_resolution}
+        )
         self.picam2.configure(config)
         self.picam2.start()
         self._is_opened = True
@@ -86,13 +89,25 @@ class PiCamera2Wrapper:
         return self._is_opened
 
     def read(self):
+        """
+        Reads a frame from the low-resolution stream for preview.
+        """
         if not self._is_opened:
             return False, None
-        # Despite configuring for BGR888, picamera2 seems to return an
-        # RGB frame. To ensure consistency with cv2.VideoCapture, we
-        # convert it to BGR here.
-        frame = self.picam2.capture_array()
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Capture from the low-resolution ("lores") stream
+        frame = self.picam2.capture_array("lores")
+        # The frame is BGR because we configured it as such.
+        return True, frame
+
+    def capture_high_res(self):
+        """
+        Captures a high-resolution still image from the main stream.
+        """
+        if not self._is_opened:
+            return False, None
+        # Capture from the high-resolution ("main") stream
+        frame = self.picam2.capture_array("main")
+        # The frame is BGR because we configured it as such.
         return True, frame
 
     def release(self):
@@ -106,11 +121,29 @@ class PiCamera2Wrapper:
         logging.info(f"PiCamera2Wrapper: set property {prop} to {value} (not implemented)")
         return True
 
+    def set_resolution(self, width, height):
+        """
+        Sets the camera resolution for the PiCamera2.
+        This involves stopping, reconfiguring, and restarting the camera.
+        """
+        self.picam2.stop()
+        # Recreate the configuration with the new main resolution
+        preview_resolution = self.picam2.camera_config['lores']['size']
+        config = self.picam2.create_preview_configuration(
+            main={"format": "BGR888", "size": (width, height)},
+            lores={"format": "BGR888", "size": preview_resolution}
+        )
+        self.picam2.configure(config)
+        self.picam2.start()
+        logging.info(f"PiCamera2 still resolution set to {width}x{height}")
+
     def get(self, prop):
         if prop == cv2.CAP_PROP_FRAME_WIDTH:
-            return self.picam2.camera_config['main']['size'][0]
+            # Return the width of the low-resolution stream for preview purposes
+            return self.picam2.camera_config['lores']['size'][0]
         if prop == cv2.CAP_PROP_FRAME_HEIGHT:
-            return self.picam2.camera_config['main']['size'][1]
+            # Return the height of the low-resolution stream for preview purposes
+            return self.picam2.camera_config['lores']['size'][1]
         return 0
 
 # A list of common resolutions to test
@@ -573,7 +606,7 @@ class CameraApp(App):
             w, h = map(int, self.resolution.split('x'))
 
         if camera_type == 'picamera':
-            self.capture = PiCamera2Wrapper(camera_num=selected_index, resolution=(w, h))
+            self.capture = PiCamera2Wrapper(camera_num=selected_index, still_resolution=(w, h))
         else:
             backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
             self.capture = cv2.VideoCapture(selected_index, backend)
@@ -765,7 +798,11 @@ class CameraApp(App):
         # Create the 'photos' directory if it doesn't exist
         if not os.path.exists("photos"):
             os.makedirs("photos")
-        ret, frame = self.capture.read()
+        if self.camera_type == 'picamera':
+            ret, frame = self.capture.capture_high_res()
+        else:
+            ret, frame = self.capture.read()
+
         if ret:
             # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
             frame_with_overlay = self._apply_overlay(frame)
