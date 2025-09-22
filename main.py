@@ -490,6 +490,7 @@ class CameraApp(App):
         # Update resolutions and set the camera to the highest available one
         resolutions = self.get_supported_resolutions(selected_index, camera_type)
         self.resolution_selector.values = resolutions
+        logging.info("Invalidating overlay cache due to camera switch.")
         self.resized_overlay = None  # Invalidate overlay cache
 
         w, h = (1920, 1080) # Default resolution
@@ -582,6 +583,7 @@ class CameraApp(App):
         # Load the new frame
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        logging.info("Invalidating overlay cache due to frame change.")
         self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Changed birthday frame to: {frame_path}")
 
@@ -598,6 +600,7 @@ class CameraApp(App):
         w, h = map(int, text.split('x'))
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        logging.info(f"Invalidating overlay cache due to resolution change to {w}x{h}.")
         self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Resolution changed to {w}x{h}")
 
@@ -610,6 +613,7 @@ class CameraApp(App):
 
         h, w, _ = frame.shape
         if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
+            logging.info(f"Creating new overlay cache for resolution {w}x{h}.")
             # Resize frame overlay to match camera frame size and cache it
             self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
