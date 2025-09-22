@@ -53,6 +53,7 @@ logging.basicConfig(level=logging.INFO)
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
 PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
 RESOLUTION = os.environ.get('RESOLUTION')
+FRAME_RATE = int(os.environ.get('FRAME_RATE', 20))
 # --- END CONFIGURATION ---
 
 def is_raspberry_pi():
@@ -455,7 +456,7 @@ class CameraApp(App):
         self.update_camera(first_camera_name)
 
         # Schedule the camera feed update
-        Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
+        Clock.schedule_interval(self.update, 1.0 / FRAME_RATE)
 
         # Create a Kivy-safe trigger for capturing a photo
         self.capture_trigger = Clock.create_trigger(self.capture_photo)
@@ -501,7 +502,7 @@ class CameraApp(App):
         resolutions = self.get_supported_resolutions(selected_index, camera_type)
         self.resolution_selector.values = resolutions
         logging.info("Invalidating overlay cache due to camera switch.")
-        self.resized_overlay = None  # Invalidate overlay cache
+        self.resized_overlay = None
 
         w, h = (1920, 1080) # Default resolution
         if resolutions:
