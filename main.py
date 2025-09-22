@@ -217,6 +217,7 @@ class CameraApp(App):
         self.device = device
         self.resolution = resolution
         self.camera_type = 'default'
+        self.resized_overlay = None
 
     def get_available_cameras(self):
         """
@@ -489,6 +490,7 @@ class CameraApp(App):
         # Update resolutions and set the camera to the highest available one
         resolutions = self.get_supported_resolutions(selected_index, camera_type)
         self.resolution_selector.values = resolutions
+        self.resized_overlay = None  # Invalidate overlay cache
 
         w, h = (1920, 1080) # Default resolution
         if resolutions:
@@ -580,6 +582,7 @@ class CameraApp(App):
         # Load the new frame
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Changed birthday frame to: {frame_path}")
 
     def on_resolution_select(self, spinner, text):
@@ -595,6 +598,7 @@ class CameraApp(App):
         w, h = map(int, text.split('x'))
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Resolution changed to {w}x{h}")
 
     def _apply_overlay(self, frame):
@@ -604,13 +608,14 @@ class CameraApp(App):
         if self.birthday_frame is None:
             return frame
 
-        # Resize frame overlay to match camera frame size
         h, w, _ = frame.shape
-        overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+        if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
+            # Resize frame overlay to match camera frame size and cache it
+            self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
         # Separate the overlay into color and alpha channels
-        overlay_rgb = overlay_resized[:, :, :3]
-        alpha = overlay_resized[:, :, 3] / 255.0
+        overlay_rgb = self.resized_overlay[:, :, :3]
+        alpha = self.resized_overlay[:, :, 3] / 255.0
 
         # Blend the overlay with the frame
         blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
