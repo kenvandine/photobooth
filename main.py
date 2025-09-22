@@ -662,6 +662,7 @@ class CameraApp(App):
         # Load the new frame
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        self.resized_overlay = None
         logging.info(f"Changed birthday frame to: {frame_path}")
 
     def on_resolution_select(self, spinner, text):
