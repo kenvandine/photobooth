@@ -79,7 +79,7 @@ class PiCamera2Wrapper:
         self.picam2 = Picamera2(camera_num=camera_num)
         config = self.picam2.create_preview_configuration(
             main={"format": "BGR888", "size": main_resolution or preview_resolution},
-            lores={"format": "YUV420", "size": preview_resolution},
+            lores={"format": "BGR888", "size": preview_resolution},
             display="lores"
         )
         self.picam2.configure(config)
@@ -100,10 +100,12 @@ class PiCamera2Wrapper:
     def read(self):
         if not self._is_opened:
             return False, None
-        # The lores stream is YUV420, so we convert it to BGR.
-        yuv_frame = self.picam2.capture_array()
-        bgr_frame = cv2.cvtColor(yuv_frame, cv2.COLOR_YUV420p2BGR)
-        return True, bgr_frame
+        # Despite configuring for BGR888, picamera2 seems to return an
+        # RGB frame. To ensure consistency with cv2.VideoCapture, we
+        # convert it to BGR here.
+        frame = self.picam2.capture_array()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return True, frame
 
     def release(self):
         if self._is_opened:
