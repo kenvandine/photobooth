@@ -40,6 +40,10 @@ import subprocess
 import re
 import requests
 import argparse
+try:
+    from picamera2 import Picamera2
+except ImportError:
+    Picamera2 = None
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -48,7 +52,73 @@ logging.basicConfig(level=logging.INFO)
 # --- CONFIGURATION ---
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
 PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
+RESOLUTION = os.environ.get('RESOLUTION')
+FRAME_RATE = int(os.environ.get('FRAME_RATE', 20))
 # --- END CONFIGURATION ---
+
+def is_raspberry_pi():
+    """Checks if the system is a Raspberry Pi."""
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            if 'raspberry pi' in f.read().lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+class PiCamera2Wrapper:
+    def __init__(self, camera_num=0, resolution=(640, 480)):
+        if Picamera2 is None:
+            msg = "picamera2 library not found or failed to import. " \
+                  "Please ensure it is installed in the correct Python environment " \
+                  "and that all its system dependencies are met."
+            raise ImportError(msg)
+        self.picam2 = Picamera2(camera_num=camera_num)
+        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": resolution})
+        self.picam2.configure(config)
+        self.picam2.start()
+        self._is_opened = True
+
+    def isOpened(self):
+        return self._is_opened
+
+    def read(self):
+        if not self._is_opened:
+            return False, None
+        # Despite configuring for BGR888, picamera2 seems to return an
+        # RGB frame. To ensure consistency with cv2.VideoCapture, we
+        # convert it to BGR here.
+        frame = self.picam2.capture_array()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return True, frame
+
+    def release(self):
+        if self._is_opened:
+            self.picam2.stop()
+            self._is_opened = False
+
+    def set(self, prop, value):
+        # This is a dummy implementation for now.
+        # The picamera2 library uses a different method for setting controls.
+        return True
+
+    def set_resolution(self, width, height):
+        """
+        Sets the camera resolution for the PiCamera2.
+        This involves stopping, reconfiguring, and restarting the camera.
+        """
+        self.picam2.stop()
+        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": (width, height)})
+        self.picam2.configure(config)
+        self.picam2.start()
+        logging.info(f"PiCamera2 resolution set to {width}x{height}")
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return self.picam2.camera_config['main']['size'][0]
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return self.picam2.camera_config['main']['size'][1]
+        return 0
 
 # A list of common resolutions to test
 STANDARD_RESOLUTIONS = [
@@ -57,6 +127,7 @@ STANDARD_RESOLUTIONS = [
     (1024, 768),
     (1280, 720),
     (1920, 1080),
+    (2592, 1944),
     (3840, 2160)
 ]
 
@@ -152,50 +223,70 @@ class CameraApp(App):
     and photo capture logic. It builds the GUI using Kivy widgets and manages
     camera selection, resolution changes, and the capture process.
     """
-    def __init__(self, device=None, **kwargs):
+    def __init__(self, device=None, resolution=None, **kwargs):
         super(CameraApp, self).__init__(**kwargs)
         self.device = device
+        self.resolution = resolution
+        self.camera_type = 'default'
+        self.resized_overlay = None
 
     def get_available_cameras(self):
         """
-        Detects and lists available video cameras on the system.
-
-        Tries to use `v4l2-ctl` for more descriptive camera names on Linux.
-        If `v4l2-ctl` is not available or fails, it falls back to a simple
-        index-based scan.
-
-        Returns:
-            dict: A dictionary mapping camera names to their device indices.
+        Detects and lists available video cameras on the system, determining the
+        best backend for each camera.
         """
         cameras = {}
+        if not is_raspberry_pi():
+            # Fallback for non-Pi systems
+            for i in range(10):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
+                    cap.release()
+            logging.info(f"Available cameras (non-Pi): {cameras}")
+            return cameras
+
+        # Raspberry Pi specific detection
         try:
-            # Use v4l2-ctl to get a list of cameras with descriptive names
             output = subprocess.check_output(['v4l2-ctl', '--list-devices'], text=True)
             current_camera_name = ""
             for line in output.splitlines():
                 if not line.startswith('\t'):
                     current_camera_name = line.strip().split(' (')[0]
                 elif '/dev/video' in line:
-                    match = re.search(r'/dev/video(\d+)', line)
-                    if match:
-                        index = int(match.group(1))
-                        # Check if the camera can be opened
-                        cap = cv2.VideoCapture(index)
-                        if cap.isOpened():
-                            cameras[current_camera_name] = index
-                            cap.release()
+                    camera_type = None
+                    if 'unicam' in current_camera_name.lower():
+                        camera_type = 'picamera'
+                    elif 'usb' in current_camera_name.lower():
+                        camera_type = 'v4l2'
+
+                    if camera_type:
+                        match = re.search(r'/dev/video(\d+)', line)
+                        if match:
+                            index = int(match.group(1))
+                            # Use the device name and index to create a unique key
+                            unique_key = f"{current_camera_name} ({index})"
+                            if unique_key not in cameras:
+                                if camera_type == 'picamera' and Picamera2 is None:
+                                    logging.warning("PiCamera detected, but picamera2 library is not installed.")
+                                    continue
+                                cameras[unique_key] = {'index': index, 'type': camera_type}
         except (subprocess.CalledProcessError, FileNotFoundError):
-            # Fallback for non-Linux systems or if v4l2-ctl is not installed
-            logging.warning("v4l2-ctl not found or failed. Falling back to index-based detection.")
-            for i in range(10):  # Check first 10 indices
+            logging.warning("v4l2-ctl not found or failed. Cannot perform Pi-specific camera detection.")
+
+        # Fallback if v4l2-ctl fails or finds no specific cameras
+        if not cameras:
+            logging.warning("No specific Pi cameras found, falling back to default enumeration.")
+            for i in range(10):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
-                    cameras[f"Camera {i}"] = i
+                    cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
                     cap.release()
+
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
-    def get_supported_resolutions(self, camera_index):
+    def get_supported_resolutions(self, camera_index, camera_type='default'):
         """
         Determines the supported resolutions for a given camera.
 
@@ -204,13 +295,20 @@ class CameraApp(App):
 
         Args:
             camera_index (int): The index of the camera to check.
+            camera_type (str): The type of camera ('picamera', 'v4l2', 'default').
 
         Returns:
             list: A list of strings, where each string represents a
                   supported resolution (e.g., "1920x1080").
         """
+        if camera_type == 'picamera':
+            # For PiCamera2, we assume it supports all standard resolutions.
+            # A more advanced implementation could query sensor modes.
+            return [f"{w}x{h}" for w, h in STANDARD_RESOLUTIONS]
+
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
+        cap = cv2.VideoCapture(camera_index, backend)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
@@ -270,11 +368,24 @@ class CameraApp(App):
         self.camera_view = Image()
         main_layout.add_widget(self.camera_view)
 
-        # Detect cameras and handle the case where none are found
+        # Always get the full list of cameras with their types
+        all_cameras = self.get_available_cameras()
+
         if self.device is not None:
-            self.available_cameras = {f"Device: {self.device}": self.device}
+            # If a device is specified, find it in the list of all cameras
+            self.available_cameras = {}
+            for name, info in all_cameras.items():
+                if info['index'] == self.device:
+                    self.available_cameras[name] = info
+                    break
+            if not self.available_cameras:
+                # If the specified device was not found, fallback to using it directly
+                logging.warning(f"Device {self.device} not found in v4l2-ctl list. Falling back to direct use.")
+                # When a device is specified on a Pi, assume it's the Pi Camera.
+                camera_type = 'picamera' if is_raspberry_pi() else 'default'
+                self.available_cameras = {f"Device: {self.device}": {'index': self.device, 'type': camera_type}}
         else:
-            self.available_cameras = self.get_available_cameras()
+            self.available_cameras = all_cameras
 
         if not self.available_cameras:
             logging.error("No cameras found!")
@@ -345,7 +456,7 @@ class CameraApp(App):
         self.update_camera(first_camera_name)
 
         # Schedule the camera feed update
-        Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
+        Clock.schedule_interval(self.update, 1.0 / FRAME_RATE)
 
         # Create a Kivy-safe trigger for capturing a photo
         self.capture_trigger = Clock.create_trigger(self.capture_photo)
@@ -377,28 +488,38 @@ class CameraApp(App):
         Args:
             camera_name (str): The name of the camera to switch to.
         """
-        selected_index = self.available_cameras[camera_name]
-        logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
+        camera_info = self.available_cameras[camera_name]
+        selected_index = camera_info['index']
+        camera_type = camera_info['type']
+        self.camera_type = camera_type
+        logging.info(f"Switching to camera: {camera_name} (index: {selected_index}, type: {camera_type})")
 
         # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture.isOpened():
+        if hasattr(self, 'capture') and self.capture:
             self.capture.release()
 
         # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index)
+        resolutions = self.get_supported_resolutions(selected_index, camera_type)
         self.resolution_selector.values = resolutions
+        logging.info("Invalidating overlay cache due to camera switch.")
+        self.resized_overlay = None
+
+        w, h = (1920, 1080) # Default resolution
         if resolutions:
-            self.resolution_selector.text = resolutions[-1]  # Default to highest
-            w, h = map(int, resolutions[-1].split('x'))
-            self.capture = cv2.VideoCapture(selected_index)
+            if not self.resolution or self.resolution not in resolutions:
+                self.resolution = resolutions[-1] # Default to highest
+            self.resolution_selector.text = self.resolution
+            w, h = map(int, self.resolution.split('x'))
+
+        if camera_type == 'picamera':
+            self.capture = PiCamera2Wrapper(camera_num=selected_index, resolution=(w, h))
+        else:
+            backend = cv2.CAP_V4L2 if camera_type == 'v4l2' else cv2.CAP_ANY
+            self.capture = cv2.VideoCapture(selected_index, backend)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            logging.info(f"Set camera {selected_index} to {w}x{h}")
-        else:
-            # Fallback if no specific resolutions are confirmed
-            logging.warning(f"No supported resolutions found for camera {selected_index}. Using default.")
-            self.capture = cv2.VideoCapture(selected_index)
-            self.resolution_selector.text = 'Default'
+
+        logging.info(f"Set camera {selected_index} to {w}x{h} with type {camera_type}")
 
     def on_camera_select(self, camera_name):
         """
@@ -473,6 +594,8 @@ class CameraApp(App):
         # Load the new frame
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        logging.info("Invalidating overlay cache due to frame change.")
+        self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Changed birthday frame to: {frame_path}")
 
     def on_resolution_select(self, spinner, text):
@@ -486,8 +609,13 @@ class CameraApp(App):
         if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
             return
         w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        if self.camera_type == 'picamera':
+            self.capture.set_resolution(w, h)
+        else:
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        logging.info(f"Invalidating overlay cache due to resolution change to {w}x{h}.")
+        self.resized_overlay = None  # Invalidate overlay cache
         logging.info(f"Resolution changed to {w}x{h}")
 
     def _apply_overlay(self, frame):
@@ -497,13 +625,15 @@ class CameraApp(App):
         if self.birthday_frame is None:
             return frame
 
-        # Resize frame overlay to match camera frame size
         h, w, _ = frame.shape
-        overlay_resized = cv2.resize(self.birthday_frame, (w, h))
+        if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
+            logging.info(f"Creating new overlay cache for resolution {w}x{h}.")
+            # Resize frame overlay to match camera frame size and cache it
+            self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
         # Separate the overlay into color and alpha channels
-        overlay_rgb = overlay_resized[:, :, :3]
-        alpha = overlay_resized[:, :, 3] / 255.0
+        overlay_rgb = self.resized_overlay[:, :, :3]
+        alpha = self.resized_overlay[:, :, 3] / 255.0
 
         # Blend the overlay with the frame
         blended_frame = (1 - alpha)[:, :, None] * frame + alpha[:, :, None] * overlay_rgb
@@ -522,9 +652,10 @@ class CameraApp(App):
             return
         ret, frame = self.capture.read()
         if ret:
+            # Frame is now always BGR. Apply the overlay.
             frame = self._apply_overlay(frame)
 
-            # Convert the BGR frame from OpenCV to RGB
+            # Convert the final BGR frame to RGB for Kivy texture
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             # Flip the frame vertically (otherwise it's upside down)
             buf1 = cv2.flip(frame_rgb, 0)
@@ -582,10 +713,12 @@ class CameraApp(App):
             os.makedirs("photos")
         ret, frame = self.capture.read()
         if ret:
-            # Apply the overlay before saving
+            # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
             frame_with_overlay = self._apply_overlay(frame)
+
             now = datetime.now()
             filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
+            # cv2.imwrite expects BGR, which is what we have.
             cv2.imwrite(filename, frame_with_overlay)
             logging.info(f"Photo saved as {filename}")
             self.do_flash()
@@ -632,4 +765,4 @@ if __name__ == '__main__':
         match = re.search(r'\d+$', device)
         if match:
             device = int(match.group(0))
-    CameraApp(device=device).run()
+    CameraApp(device=device, resolution=RESOLUTION).run()
