@@ -663,6 +663,13 @@ class CameraApp(App):
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
         self.resized_overlay = None
+
+        # Clear the queue of any stale frames to ensure the new frame is shown
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                break
         logging.info(f"Changed birthday frame to: {frame_path}")
 
     def on_resolution_select(self, spinner, text):
@@ -823,4 +830,8 @@ if __name__ == '__main__':
         match = re.search(r'\d+$', device)
         if match:
             device = int(match.group(0))
-    CameraApp(device=device, resolution=RESOLUTION).run()
+    app = CameraApp(device=device, resolution=RESOLUTION)
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        app.stop()
