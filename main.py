@@ -43,6 +43,7 @@ import argparse
 import threading
 import queue
 import numpy as np
+import time
 try:
     from picamera2 import Picamera2
 except ImportError:
@@ -219,18 +220,52 @@ class CameraWorker(threading.Thread):
         self.app = app
 
     def run(self):
+        frame_count = 0
+        total_capture_time = 0
+        total_overlay_time = 0
+        total_process_time = 0
+
         while not self.stop_event.is_set():
             if not self.capture.isOpened():
+                time.sleep(0.01)
                 continue
+
+            start_time = time.time()
             ret, frame = self.capture.read()
+            capture_time = time.time() - start_time
+
             if ret:
+                start_overlay_time = time.time()
                 frame = self.app._apply_overlay(frame)
+                overlay_time = time.time() - start_overlay_time
+
+                # Process the frame for display (convert to RGB and flip)
+                start_process_time = time.time()
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                buf = cv2.flip(frame_rgb, 0).tobytes()
+                process_time = time.time() - start_process_time
+
+                total_capture_time += capture_time
+                total_overlay_time += overlay_time
+                total_process_time += process_time
+                frame_count += 1
+
+                if frame_count >= 60:
+                    avg_capture = total_capture_time / frame_count
+                    avg_overlay = total_overlay_time / frame_count
+                    avg_process = total_process_time / frame_count
+                    logging.info(f"Worker Stats (last {frame_count} frames): "
+                                 f"Avg Capture: {avg_capture:.4f}s, "
+                                 f"Avg Overlay: {avg_overlay:.4f}s, "
+                                 f"Avg Process: {avg_process:.4f}s")
+                    frame_count = 0
+                    total_capture_time = 0
+                    total_overlay_time = 0
+                    total_process_time = 0
+
                 try:
-                    # Put the frame in the queue, but don't block if the queue is full
-                    self.frame_queue.put_nowait(frame)
+                    self.frame_queue.put_nowait((buf, frame.shape))
                 except queue.Full:
-                    # If the queue is full, it means the UI is lagging.
-                    # We can just drop the frame to avoid piling up old frames.
                     pass
 
 
@@ -670,19 +705,14 @@ class CameraApp(App):
             dt (float): The time elapsed since the last update.
         """
         try:
-            frame = self.frame_queue.get_nowait()
-            # The frame is BGR. Ensure it's contiguous before passing to Kivy.
-            frame_contiguous = np.ascontiguousarray(frame)
-            buf = frame_contiguous.tobytes()
+            buf, shape = self.frame_queue.get_nowait()
 
             # Create a Kivy texture from the byte buffer
             image_texture = Texture.create(
-                size=(frame.shape[1], frame.shape[0]), colorfmt='bgr'
+                size=(shape[1], shape[0]), colorfmt='rgb'
             )
-            image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
-            # Flip the texture vertically (more efficient than cv2.flip)
-            image_texture.flip_vertical()
-            # Display the texture in the Image widget
+            image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+            # The buffer is already flipped, so we just display it.
             self.camera_view.texture = image_texture
         except queue.Empty:
             pass  # No new frame available
