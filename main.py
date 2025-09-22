@@ -73,7 +73,7 @@ class PiCamera2Wrapper:
                   "and that all its system dependencies are met."
             raise ImportError(msg)
         self.picam2 = Picamera2(camera_num=camera_num)
-        config = self.picam2.create_preview_configuration(main={"format": "BGR888", "size": resolution})
+        config = self.picam2.create_preview_configuration(main={"format": "RGB888", "size": resolution})
         self.picam2.configure(config)
         self.picam2.start()
         self._is_opened = True
@@ -84,8 +84,10 @@ class PiCamera2Wrapper:
     def read(self):
         if not self._is_opened:
             return False, None
-        # capture_array returns a numpy array in RGB format
+        # capture_array returns a numpy array in RGB format, but OpenCV
+        # and the rest of this application expects BGR. So we convert it.
         frame = self.picam2.capture_array()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return True, frame
 
     def release(self):
