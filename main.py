@@ -455,7 +455,7 @@ class CameraApp(App):
         # Layout for the capture button, centered horizontally
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
         button_layout.add_widget(Widget())  # Left spacer
-        self.capture_button = RoundButton(size_hint=(None, None), size=(80, 80))
+        self.capture_button = RoundButton(size_hint=(None, None), size=(240, 240))
         self.capture_button.bind(on_press=self.capture_photo)
         button_layout.add_widget(self.capture_button)
         button_layout.add_widget(Widget())  # Right spacer
@@ -468,7 +468,7 @@ class CameraApp(App):
         self.camera_switch_button = RoundImageButton(
             source='assets/system-settings.png',
             size_hint=(None, None),
-            size=(32, 32),
+            size=(128, 128),
             pos_hint={'x': 0.05, 'y': 0.05}
         )
         self.camera_switch_button.bind(on_press=self.open_camera_selector)
@@ -478,7 +478,7 @@ class CameraApp(App):
         self.frame_switch_button = RoundImageButton(
             source='assets/change-frame.png',
             size_hint=(None, None),
-            size=(32, 32),
+            size=(128, 128),
             pos_hint={'right': 0.95, 'y': 0.05}
         )
         self.frame_switch_button.bind(on_press=self.change_birthday_frame)
