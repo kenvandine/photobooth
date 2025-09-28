@@ -15,6 +15,12 @@ os.environ['KIVY_NO_ARGS'] = '1'
 import kivy
 kivy.require('2.3.1')
 
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GLib
+
+Gst.init(None)
+
 from kivy.app import App
 from kivy.animation import Animation
 from kivy.core.window import Window
@@ -150,66 +156,60 @@ class RoundImageButton(ButtonBehavior, Image):
         self.stencil_shape.size = self.size
 
 
-class CameraWorker(threading.Thread):
-    """
-    A worker thread that reads frames from the camera and puts them in a queue.
-    """
-    def __init__(self, capture, frame_queue, stop_event, app, **kwargs):
-        super(CameraWorker, self).__init__(**kwargs)
-        self.capture = capture
-        self.frame_queue = frame_queue
-        self.stop_event = stop_event
-        self.app = app
+class GlibMainLoopWorker(threading.Thread):
+    """A worker thread that runs the GLib.MainLoop."""
+    def __init__(self, **kwargs):
+        super(GlibMainLoopWorker, self).__init__(**kwargs)
+        self.main_loop = GLib.MainLoop()
 
     def run(self):
-        frame_count = 0
-        total_capture_time = 0
-        total_overlay_time = 0
-        total_process_time = 0
+        logging.info("GLib main loop worker started.")
+        self.main_loop.run()
+        logging.info("GLib main loop worker stopped.")
 
+    def stop(self):
+        if self.main_loop.is_running():
+            self.main_loop.quit()
+
+class FrameProcessorWorker(threading.Thread):
+    """A worker thread to process GStreamer frames."""
+    def __init__(self, app, **kwargs):
+        super(FrameProcessorWorker, self).__init__(**kwargs)
+        self.app = app
+        self.stop_event = threading.Event()
+
+    def run(self):
+        logging.info("Frame processor worker started.")
         while not self.stop_event.is_set():
-            if not self.capture.isOpened():
-                time.sleep(0.01)
+            try:
+                sample = self.app.sample_queue.get(timeout=0.1)
+            except queue.Empty:
                 continue
 
-            start_time = time.time()
-            ret, frame = self.capture.read()
-            capture_time = time.time() - start_time
+            if sample:
+                buf = sample.get_buffer()
+                caps = sample.get_caps()
+                h = caps.get_structure(0).get_value("height")
+                w = caps.get_structure(0).get_value("width")
 
-            if ret:
-                start_overlay_time = time.time()
-                frame = self.app._apply_overlay(frame)
-                overlay_time = time.time() - start_overlay_time
+                success, map_info = buf.map(Gst.MapFlags.READ)
+                if success:
+                    frame = np.ndarray((h, w, 3), buffer=map_info.data, dtype=np.uint8)
 
-                # Process the frame for display (convert to RGB and flip)
-                start_process_time = time.time()
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                buf = cv2.flip(frame_rgb, 0).tobytes()
-                process_time = time.time() - start_process_time
+                    # The frame from GStreamer is BGR. _apply_overlay expects BGR.
+                    processed_frame = self.app._apply_overlay(frame.copy())
+                    self.app.latest_processed_frame = processed_frame
 
-                total_capture_time += capture_time
-                total_overlay_time += overlay_time
-                total_process_time += process_time
-                frame_count += 1
+                    try:
+                        self.app.display_queue.put_nowait(processed_frame)
+                    except queue.Full:
+                        pass # UI is lagging
 
-                if frame_count >= 60:
-                    avg_capture = total_capture_time / frame_count
-                    avg_overlay = total_overlay_time / frame_count
-                    avg_process = total_process_time / frame_count
-                    logging.info(f"Worker Stats (last {frame_count} frames): "
-                                 f"Avg Capture: {avg_capture:.4f}s, "
-                                 f"Avg Overlay: {avg_overlay:.4f}s, "
-                                 f"Avg Process: {avg_process:.4f}s")
-                    frame_count = 0
-                    total_capture_time = 0
-                    total_overlay_time = 0
-                    total_process_time = 0
+                    buf.unmap(map_info)
+        logging.info("Frame processor worker stopped.")
 
-                try:
-                    self.frame_queue.put_nowait((buf, frame.shape))
-                except queue.Full:
-                    pass
-
+    def stop(self):
+        self.stop_event.set()
 
 class CameraApp(App):
     """
@@ -224,17 +224,39 @@ class CameraApp(App):
         self.device = device
         self.resolution = resolution
         self.resized_overlay = None
+        self.pipeline = None
+        self.glib_worker = None
+        self.frame_processor_worker = None
+        self.sample_queue = queue.Queue(maxsize=5)  # Raw samples from GStreamer
+        self.display_queue = queue.Queue(maxsize=2) # Processed frames for the UI
+        self.latest_processed_frame = None          # For photo capture
 
     def get_available_cameras(self):
         """
         Detects and lists available video cameras on the system.
         """
         cameras = {}
+        # Iterate through the first 10 /dev/video nodes
         for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
-                cap.release()
+            device_path = f"/dev/video{i}"
+            if os.path.exists(device_path):
+                try:
+                    # Check if the device is a video capture device
+                    result = subprocess.run(
+                        ['v4l2-ctl', '-d', device_path, '--query-cap'],
+                        check=True, capture_output=True, text=True
+                    )
+                    if "Video Capture" in result.stdout:
+                        cameras[f"Camera {i}"] = {'index': i, 'type': 'v4l2'}
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    # Fallback for systems without v4l2-ctl or for non-v4l2 devices
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
+                        cap.release()
+            else:
+                # No more video devices
+                break
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
@@ -254,46 +276,62 @@ class CameraApp(App):
         # Try to get formats using v4l2-ctl for reliability
         device_path = f"/dev/video{camera_index}"
         try:
+            # Ensure v4l2-ctl is installed
             subprocess.run(['which', 'v4l2-ctl'], check=True, capture_output=True)
+
+            # Get the output from v4l2-ctl
             result = subprocess.run(
                 ['v4l2-ctl', '-d', device_path, '--list-formats-ext'],
-                check=True, capture_output=True, text=True
+                check=True, capture_output=True, text=True,
+                errors='ignore'
             )
             output = result.stdout
+            logging.info(f"v4l2-ctl output for {device_path}:\n{output}")
 
             formats = []
-            current_format = None
-            current_w, current_h = None, None
             format_pattern = re.compile(r"\[\d+\]:\s+'(\w+)'")
             resolution_pattern = re.compile(r'\s+Size: Discrete\s+(\d+)x(\d+)')
             framerate_pattern = re.compile(r'\s+Interval: Discrete .* \((\d+\.\d+)\s+fps\)')
 
-            for line in output.split('\n'):
-                format_match = format_pattern.search(line)
-                if format_match:
-                    current_format = format_match.group(1)
-                    current_w, current_h = None, None
+            # Split output into blocks for each format
+            format_blocks = re.split(r'(?=\[\d+\]:)', output)
+
+            for block in format_blocks:
+                if not block.strip():
                     continue
 
-                resolution_match = resolution_pattern.search(line)
-                if resolution_match:
-                    current_w = int(resolution_match.group(1))
-                    current_h = int(resolution_match.group(2))
+                format_match = format_pattern.search(block)
+                if not format_match:
                     continue
+                current_format = format_match.group(1)
 
-                if current_format and current_w and current_h:
-                    framerate_match = framerate_pattern.search(line)
-                    if framerate_match:
-                        fps = float(framerate_match.group(1))
-                        formats.append((current_w, current_h, current_format, int(fps)))
+                # Split each format block by resolution
+                resolution_blocks = re.split(r'(?=\s+Size: Discrete)', block)
+
+                for res_block in resolution_blocks:
+                    if not res_block.strip() or "Size: Discrete" not in res_block:
+                        continue
+
+                    resolution_match = resolution_pattern.search(res_block)
+                    if not resolution_match:
+                        continue
+
+                    w = int(resolution_match.group(1))
+                    h = int(resolution_match.group(2))
+
+                    framerate_matches = framerate_pattern.finditer(res_block)
+                    for fr_match in framerate_matches:
+                        fps = float(fr_match.group(1))
+                        formats.append((w, h, current_format, int(fps)))
 
             if formats:
-                # Sort by resolution area, then by framerate
-                formats.sort(key=lambda f: (f[0] * f[1], f[3]))
+                # Remove duplicates and sort the formats
+                formats = sorted(list(set(formats)), key=lambda f: (f[0] * f[1], f[3]))
                 logging.info(f"Found formats for {device_path} via v4l2-ctl: {formats}")
                 return formats
             else:
-                logging.warning(f"v4l2-ctl for {device_path} gave no resolution/format output.")
+                logging.warning(f"v4l2-ctl for {device_path} gave no resolution/format output. "
+                                "Falling back to OpenCV's trial-and-error method.")
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logging.warning(f"v4l2-ctl for {device_path} failed (is it installed?): {e}. "
@@ -306,25 +344,43 @@ class CameraApp(App):
             logging.error(f"Could not open camera index {camera_index} for fallback resolution check.")
             return []
 
-        for w, h in STANDARD_RESOLUTIONS:
+        # Add the user-specified resolution to the list to ensure it is checked
+        resolutions_to_check = STANDARD_RESOLUTIONS[:] # Make a copy
+        if self.resolution:
+            try:
+                w, h = map(int, self.resolution.split('x'))
+                if (w, h) not in resolutions_to_check:
+                    resolutions_to_check.append((w, h))
+            except (ValueError, TypeError):
+                logging.error(f"Invalid resolution format: {self.resolution}")
+
+        for w, h in resolutions_to_check:
+            # Set the desired resolution
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            time.sleep(0.1)
 
-            ret, _ = cap.read()
-            if not ret:
-                continue
+            # Allow some time for the setting to apply
+            time.sleep(0.2)
 
+            # Read the actual resolution back from the camera
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+            logging.info(f"Testing {w}x{h}, got {actual_w}x{actual_h}")
+            # Check if the camera accepted the resolution
             if actual_w == w and actual_h == h:
-                # Can't determine format or framerate here, so use None
-                if (w, h, None, None) not in supported_formats:
-                    supported_formats.append((w, h, None, None))
+                # Can't determine format or framerate here, so use a sensible default
+                if (w, h, 'YUYV', 30) not in supported_formats:
+                    supported_formats.append((w, h, 'YUYV', 30))
 
         cap.release()
-        logging.info(f"Supported formats for camera {camera_index} (OpenCV fallback): {supported_formats}")
+
+        if supported_formats:
+            supported_formats.sort(key=lambda f: (f[0] * f[1], f[3]))
+            logging.info(f"Supported formats for camera {camera_index} (OpenCV fallback): {supported_formats}")
+        else:
+            logging.warning(f"OpenCV fallback could not determine any supported resolutions for camera {camera_index}.")
+
         return supported_formats
 
     def build(self):
@@ -450,24 +506,32 @@ class CameraApp(App):
         self.flash.bind(size=self._update_flash_rect, pos=self._update_flash_rect)
         root.add_widget(self.flash)
 
-        self.frame_queue = queue.Queue(maxsize=1)  # Store only the latest frame
-        self.stop_event = threading.Event()
-        self.camera_worker = None
+        # Start the GLib main loop in a separate thread
+        self.glib_worker = GlibMainLoopWorker()
+        self.glib_worker.start()
+
+        # Start the frame processor worker
+        self.frame_processor_worker = FrameProcessorWorker(self)
+        self.frame_processor_worker.start()
 
         # Initialize with the selected or default camera
         self.update_camera(initial_camera_name)
 
-        # Schedule the camera feed update
-        Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
+        # Schedule the UI update from the processed frames queue
+        Clock.schedule_interval(self.update, 1/60.0)
 
         # Create a Kivy-safe trigger for capturing a photo
         self.capture_trigger = Clock.create_trigger(self.capture_photo)
-        # Initialize and start the voice listener
-        try:
-            self.voice_listener = VoiceListener(callback=self.capture_trigger)
-            self.voice_listener.start()
-        except Exception as e:
-            logging.error(f"Failed to start voice listener: {e}")
+
+        # Initialize and start the voice listener if enabled
+        if VOICE_ENABLED:
+            try:
+                self.voice_listener = VoiceListener(callback=self.capture_trigger)
+                self.voice_listener.start()
+            except Exception as e:
+                logging.error(f"Failed to start voice listener: {e}")
+                self.voice_listener = None
+        else:
             self.voice_listener = None
 
         return root
@@ -483,58 +547,45 @@ class CameraApp(App):
         self.flash_rect.pos = instance.pos
         self.flash_rect.size = instance.size
 
-    def _build_gstreamer_pipeline(self, device_index, width, height, pixel_format, framerate=30):
-        """Constructs a GStreamer pipeline string for camera capture."""
-        device_path = f"/dev/video{device_index}"
-
-        if pixel_format == 'MJPG':
-            # Pipeline for Motion-JPEG format
-            caps = f"image/jpeg,width={width},height={height},framerate={framerate}/1"
-            pipeline = f"v4l2src device={device_path} ! {caps} ! jpegdec ! videoconvert ! video/x-raw,format=BGR ! appsink"
-        elif pixel_format == 'YUYV':
-            # Pipeline for YUYV (YUY2 in GStreamer) raw format
-            caps = f"video/x-raw,width={width},height={height},format=YUY2,framerate={framerate}/1"
-            pipeline = f"v4l2src device={device_path} ! {caps} ! videoconvert ! video/x-raw,format=BGR ! appsink"
-        else:
-            # A generic fallback pipeline, might not work but is better than nothing
-            logging.warning(f"Unsupported or no pixel format specified ({pixel_format}). Using a generic pipeline.")
-            pipeline = f"v4l2src device={device_path} ! videoconvert ! video/x-raw,format=BGR ! appsink"
-
-        logging.info(f"Using GStreamer pipeline: {pipeline}")
-        return pipeline
+    def on_new_sample(self, sink):
+        """Callback for GStreamer's appsink. Puts the raw sample on a queue."""
+        sample = sink.emit("pull-sample")
+        if sample:
+            try:
+                # This is called from a GStreamer thread, so we push to a queue
+                # to be processed by our worker thread.
+                self.sample_queue.put_nowait(sample)
+            except queue.Full:
+                pass  # Drop frame if the processing thread is lagging
+        return Gst.FlowReturn.OK
 
     def update_camera(self, camera_name):
         """
-        Switches the active camera and updates the resolution list.
-        This version uses GStreamer to bypass V4L2 driver issues in OpenCV.
+        Switches the active camera by building and launching a GStreamer pipeline.
         """
         camera_info = self.available_cameras[camera_name]
         selected_index = camera_info['index']
         logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
 
-        # Stop the existing worker thread if it's running
-        if self.camera_worker and self.camera_worker.is_alive():
-            self.stop_event.set()
-            self.camera_worker.join()
+        # Stop any existing pipeline
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
+            logging.info("Stopped previous GStreamer pipeline.")
 
-        # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture:
-            self.capture.release()
-
-        # Get a list of available formats (width, height, pixel_format)
-        supported_formats = self.get_supported_resolutions(selected_index)
+        # Get a list of available formats (width, height, pixel_format, framerate)
+        self.supported_formats = self.get_supported_resolutions(selected_index)
 
         # Populate the spinner with human-readable options
-        self.resolution_selector.values = [f"{w}x{h} ({f}) @ {fps}fps" for w, h, f, fps in supported_formats]
+        self.resolution_selector.values = [f"{w}x{h} ({f}) @ {fps}fps" for w, h, f, fps, in self.supported_formats]
 
         # Select the best format to use (highest resolution, prefer MJPG, highest framerate)
         w, h, pixel_format, framerate = (1920, 1080, 'MJPG', 30) # Sensible default
-        if supported_formats:
+        if self.supported_formats:
             # The list is sorted by resolution, then framerate. The last item is the best.
-            w, h, pixel_format, framerate = supported_formats[-1]
+            w, h, pixel_format, framerate = self.supported_formats[-1]
 
             # But, we prefer MJPG for high resolutions if available at the same res/fps.
-            for f_w, f_h, f_fmt, f_fps in reversed(supported_formats):
+            for f_w, f_h, f_fmt, f_fps in reversed(self.supported_formats):
                 if (f_w, f_h, f_fps) == (w, h, framerate) and f_fmt == 'MJPG':
                     pixel_format = 'MJPG'
                     break
@@ -545,31 +596,66 @@ class CameraApp(App):
             logging.error("No supported formats found. Falling back to default.")
             self.resolution_selector.text = "Default"
 
-        # Build and use a GStreamer pipeline to bypass V4L2 driver issues in OpenCV.
-        pipeline = self._build_gstreamer_pipeline(selected_index, w, h, pixel_format, framerate)
-        self.capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        # Programmatically build the GStreamer pipeline
+        self.pipeline = Gst.Pipeline.new("camera-pipeline")
+        source = Gst.ElementFactory.make("v4l2src", "source")
+        source.set_property("device", f"/dev/video{selected_index}")
 
-        if not self.capture.isOpened():
-            logging.error(f"FATAL: Could not open camera {selected_index} with GStreamer pipeline.")
-            # A real application should show a user-facing error here.
+        # Create the initial caps filter based on the camera's format
+        if pixel_format == 'MJPG':
+            caps_str = f"image/jpeg,width={w},height={h},framerate={framerate}/1"
+            caps = Gst.Caps.from_string(caps_str)
+            caps_filter = Gst.ElementFactory.make("capsfilter", "caps_filter")
+            caps_filter.set_property("caps", caps)
+            decoder = Gst.ElementFactory.make("jpegdec", "decoder")
+        else: # Assuming YUYV or other raw formats
+            caps_str = f"video/x-raw,format=YUY2,width={w},height={h},framerate={framerate}/1"
+            caps = Gst.Caps.from_string(caps_str)
+            caps_filter = Gst.ElementFactory.make("capsfilter", "caps_filter")
+            caps_filter.set_property("caps", caps)
+            decoder = None # No decoder needed for raw formats
+
+        videoconvert = Gst.ElementFactory.make("videoconvert", "videoconvert")
+
+        # Final caps filter to ensure the stream is in BGR format for OpenCV
+        final_caps = Gst.Caps.from_string("video/x-raw,format=BGR")
+        final_caps_filter = Gst.ElementFactory.make("capsfilter", "final_caps_filter")
+        final_caps_filter.set_property("caps", final_caps)
+
+        sink = Gst.ElementFactory.make("appsink", "sink")
+        sink.set_property("emit-signals", True)
+        sink.set_property("max-buffers", 1) # We only need the latest frame
+        sink.set_property("drop", True)
+        sink.connect("new-sample", self.on_new_sample)
+
+        # Add elements to the pipeline
+        elements = [source, caps_filter, videoconvert, final_caps_filter, sink]
+        if decoder:
+            elements.insert(2, decoder)
+
+        for el in elements:
+            self.pipeline.add(el)
+
+        # Link elements
+        source.link(caps_filter)
+        if decoder:
+            caps_filter.link(decoder)
+            decoder.link(videoconvert)
+        else:
+            caps_filter.link(videoconvert)
+        videoconvert.link(final_caps_filter)
+        final_caps_filter.link(sink)
+
+        # Start the pipeline
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            logging.error("Unable to set the pipeline to the playing state.")
             return
 
-        # Verify the resolution that the camera opened with.
-        # Note: with GStreamer, get() might not be as reliable, but we check anyway.
-        final_w = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        final_h = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        logging.info(f"Camera {selected_index} opened with resolution: {final_w}x{final_h} (via GStreamer)")
+        logging.info("GStreamer pipeline started successfully.")
 
-        # GStreamer pipeline forces the resolution, so a mismatch here indicates a deeper problem.
-        if final_w != w or final_h != h:
-            logging.warning(f"Resolution mismatch after GStreamer! Expected {w}x{h} but got {final_w}x{final_h}.")
-
-        # Start a new worker thread with the new capture object
-        self.stop_event.clear()
-        self.camera_worker = CameraWorker(
-            self.capture, self.frame_queue, self.stop_event, self
-        )
-        self.camera_worker.start()
+        # The worker threads are already running. The pipeline will start
+        # pushing frames to the sample_queue.
 
     def on_camera_select(self, camera_name):
         """
@@ -647,9 +733,9 @@ class CameraApp(App):
         self.resized_overlay = None
 
         # Clear the queue of any stale frames to ensure the new frame is shown
-        while not self.frame_queue.empty():
+        while not self.display_queue.empty():
             try:
-                self.frame_queue.get_nowait()
+                self.display_queue.get_nowait()
             except queue.Empty:
                 break
         logging.info(f"Changed birthday frame to: {frame_path}")
@@ -662,12 +748,35 @@ class CameraApp(App):
             spinner: The spinner instance.
             text (str): The selected resolution string (e.g., "1920x1080").
         """
-        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
+        if text == 'Default' or not hasattr(self, 'pipeline') or not self.pipeline:
             return
-        w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-        logging.info(f"Resolution changed to {w}x{h}")
+
+        # This is a bit of a hack. We're assuming the format of the text is "WxH (FORMAT) @ FPSfps"
+        # and we only care about the WxH part. A more robust solution would parse this properly.
+        try:
+            res_part = text.split(' ')[0]
+            w, h = map(int, res_part.split('x'))
+
+            # Find the full format details from the supported_formats list
+            selected_format = None
+            for f in self.supported_formats:
+                if f[0] == w and f[1] == h and f"{f[0]}x{f[1]}" in text:
+                    selected_format = f
+                    break
+
+            if selected_format:
+                logging.info(f"Resolution selected: {selected_format}")
+                # We need to rebuild the pipeline for the new resolution
+                # For now, we'll just log this. A full implementation would
+                # tear down the old pipeline and build a new one.
+                # NOTE: This is a simplified version and might not work in all cases.
+                self.update_camera(self.camera_selector.text)
+            else:
+                logging.error(f"Could not find matching format for selection: {text}")
+
+        except Exception as e:
+            logging.error(f"Error processing resolution selection '{text}': {e}")
+
 
     def _apply_overlay(self, frame):
         """
@@ -695,23 +804,29 @@ class CameraApp(App):
 
     def update(self, dt):
         """
-        Updates the camera view with a new frame from the queue.
+        Updates the camera view with the latest frame from the display queue.
         This method is called repeatedly by the Kivy Clock.
-        Args:
-            dt (float): The time elapsed since the last update.
         """
         try:
-            buf, shape = self.frame_queue.get_nowait()
-
-            # Create a Kivy texture from the byte buffer
-            image_texture = Texture.create(
-                size=(shape[1], shape[0]), colorfmt='rgb'
-            )
-            image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
-            # The buffer is already flipped, so we just display it.
-            self.camera_view.texture = image_texture
+            # Get the most recent frame, discard older ones
+            frame = self.display_queue.get_nowait()
+            while not self.display_queue.empty():
+                try:
+                    frame = self.display_queue.get_nowait()
+                except queue.Empty:
+                    break
         except queue.Empty:
-            pass  # No new frame available
+            return  # No new frame to display
+
+        # The frame from the queue is already processed and in BGR format
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        buf = cv2.flip(frame_rgb, 0).tobytes()
+
+        image_texture = Texture.create(
+            size=(frame_rgb.shape[1], frame_rgb.shape[0]), colorfmt='rgb'
+        )
+        image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+        self.camera_view.texture = image_texture
 
     def do_flash(self):
         """Triggers a flash animation on the screen."""
@@ -747,30 +862,29 @@ class CameraApp(App):
 
     def _take_and_save_photo(self, *args):
         """
-        Captures a photo, saves it, and uploads it to the backend.
+        Captures a photo from the latest processed frame, saves it, and uploads it.
         """
-        if not hasattr(self, 'capture') or not self.capture.isOpened():
-            logging.error("No camera is active to take a photo.")
+        if self.latest_processed_frame is None:
+            logging.error("No frame available to take a photo.")
             return
+
         # Create the 'photos' directory if it doesn't exist
         if not os.path.exists("photos"):
             os.makedirs("photos")
-        ret, frame = self.capture.read()
-        if ret:
-            # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
-            frame_with_overlay = self._apply_overlay(frame)
 
-            now = datetime.now()
-            filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-            # cv2.imwrite expects BGR, which is what we have.
-            cv2.imwrite(filename, frame_with_overlay)
-            logging.info(f"Photo saved as {filename}")
-            self.do_flash()
+        # The latest_processed_frame is already processed with an overlay
+        frame_with_overlay = self.latest_processed_frame
 
-            # Upload the photo to the backend if URL is set
-            if PHOTOBOOTH_URL:
-                logging.info("Uploading photo to server")
-                self._upload_photo(filename)
+        now = datetime.now()
+        filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
+        cv2.imwrite(filename, frame_with_overlay)
+        logging.info(f"Photo saved as {filename}")
+        self.do_flash()
+
+        # Upload the photo to the backend if URL is set
+        if PHOTOBOOTH_URL:
+            logging.info("Uploading photo to server")
+            self._upload_photo(filename)
 
     def _upload_photo(self, filename):
         """
@@ -789,17 +903,29 @@ class CameraApp(App):
 
     def on_stop(self):
         """
-        Cleanly releases the camera capture and stops the voice listener
+        Cleanly stops worker threads and the GStreamer pipeline
         when the application is closed.
         """
+        logging.info("Stopping application...")
         if hasattr(self, 'voice_listener') and self.voice_listener:
             self.voice_listener.stop()
-        if self.camera_worker and self.camera_worker.is_alive():
-            self.stop_event.set()
-            self.camera_worker.join()
-        if hasattr(self, 'capture') and self.capture:
-            self.capture.release()
-            logging.info("Camera released.")
+
+        # Stop the frame processor worker first
+        if self.frame_processor_worker:
+            self.frame_processor_worker.stop()
+            self.frame_processor_worker.join()
+            logging.info("Frame processor worker stopped.")
+
+        # Stop the GStreamer pipeline
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
+            logging.info("GStreamer pipeline state set to NULL.")
+
+        # Stop the GLib main loop
+        if self.glib_worker:
+            self.glib_worker.stop()
+            self.glib_worker.join()
+            logging.info("GLib main loop worker stopped.")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="A Kivy-based camera app.")
