@@ -219,8 +219,9 @@ class CameraApp(App):
     and photo capture logic. It builds the GUI using Kivy widgets and manages
     camera selection, resolution changes, and the capture process.
     """
-    def __init__(self, resolution=None, **kwargs):
+    def __init__(self, device=None, resolution=None, **kwargs):
         super(CameraApp, self).__init__(**kwargs)
+        self.device = device
         self.resolution = resolution
         self.resized_overlay = None
 
@@ -321,6 +322,19 @@ class CameraApp(App):
             return root
 
         camera_names = list(self.available_cameras.keys())
+        initial_camera_name = camera_names[0]  # Default to the first camera
+
+        if self.device is not None:
+            # If a device index is specified, try to find the corresponding camera name
+            found = False
+            for name, info in self.available_cameras.items():
+                if info['index'] == self.device:
+                    initial_camera_name = name
+                    found = True
+                    break
+            if not found:
+                logging.warning(f"Device index {self.device} not found or is not available. "
+                                f"Falling back to default camera.")
 
         # Spinner for resolution selection (will be moved to a popup)
         self.resolution_selector = Spinner(text="Resolution", values=[], size_hint_y=None, height=50)
@@ -383,9 +397,8 @@ class CameraApp(App):
         self.stop_event = threading.Event()
         self.camera_worker = None
 
-        # Initialize with the first available camera
-        first_camera_name = camera_names[0]
-        self.update_camera(first_camera_name)
+        # Initialize with the selected or default camera
+        self.update_camera(initial_camera_name)
 
         # Schedule the camera feed update
         Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
@@ -688,7 +701,18 @@ class CameraApp(App):
             logging.info("Camera released.")
 
 if __name__ == '__main__':
-    app = CameraApp(resolution=RESOLUTION)
+    parser = argparse.ArgumentParser(description="A Kivy-based camera app.")
+    parser.add_argument('--device', help='The camera device index to use (e.g., 0)')
+    args = parser.parse_args()
+    device = args.device
+    if device:
+        try:
+            device = int(device)
+        except ValueError:
+            logging.error(f"Invalid device index: {device}. Must be an integer.")
+            device = None
+
+    app = CameraApp(device=device, resolution=RESOLUTION)
     try:
         app.run()
     except KeyboardInterrupt:
