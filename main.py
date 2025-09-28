@@ -476,12 +476,30 @@ class CameraApp(App):
         self.flash_rect.pos = instance.pos
         self.flash_rect.size = instance.size
 
+    def _build_gstreamer_pipeline(self, device_index, width, height, pixel_format, framerate=30):
+        """Constructs a GStreamer pipeline string for camera capture."""
+        device_path = f"/dev/video{device_index}"
+
+        if pixel_format == 'MJPG':
+            # Pipeline for Motion-JPEG format
+            caps = f"image/jpeg,width={width},height={height},framerate={framerate}/1"
+            pipeline = f"v4l2src device={device_path} ! {caps} ! jpegdec ! videoconvert ! video/x-raw,format=BGR ! appsink"
+        elif pixel_format == 'YUYV':
+            # Pipeline for YUYV (YUY2 in GStreamer) raw format
+            caps = f"video/x-raw,width={width},height={height},format=YUY2,framerate={framerate}/1"
+            pipeline = f"v4l2src device={device_path} ! {caps} ! videoconvert ! video/x-raw,format=BGR ! appsink"
+        else:
+            # A generic fallback pipeline, might not work but is better than nothing
+            logging.warning(f"Unsupported or no pixel format specified ({pixel_format}). Using a generic pipeline.")
+            pipeline = f"v4l2src device={device_path} ! videoconvert ! video/x-raw,format=BGR ! appsink"
+
+        logging.info(f"Using GStreamer pipeline: {pipeline}")
+        return pipeline
+
     def update_camera(self, camera_name):
         """
         Switches the active camera and updates the resolution list.
-
-        Args:
-            camera_name (str): The name of the camera to switch to.
+        This version uses GStreamer to bypass V4L2 driver issues in OpenCV.
         """
         camera_info = self.available_cameras[camera_name]
         selected_index = camera_info['index']
@@ -503,56 +521,39 @@ class CameraApp(App):
         self.resolution_selector.values = [f"{w}x{h} ({f or 'auto'})" for w, h, f in supported_formats]
 
         # Select the best format to use (highest resolution)
-        w, h, pixel_format = (1920, 1080, 'MJPG') # Default
+        w, h, pixel_format = (1920, 1080, 'MJPG') # Sensible default
         if supported_formats:
-            # Default to the highest resolution available
-            w, h, pixel_format = supported_formats[-1]
+            # Default to the highest resolution available, preferring MJPG for high-res
+            best_format = supported_formats[-1]
+            for f in reversed(supported_formats):
+                if f[0] == best_format[0] and f[1] == best_format[1] and f[2] == 'MJPG':
+                    best_format = f
+                    break
+            w, h, pixel_format = best_format
             self.resolution_selector.text = f"{w}x{h} ({pixel_format or 'auto'})"
             logging.info(f"Selected best format: {w}x{h} at {pixel_format}")
         else:
             logging.error("No supported formats found. Falling back to default.")
             self.resolution_selector.text = "Default"
 
-        # Configure the camera externally with v4l2-ctl before opening it.
-        # This is the most reliable method for stubborn drivers.
-        device_path = f"/dev/video{selected_index}"
-        try:
-            if pixel_format:
-                logging.info(f"Attempting to configure {device_path} to {w}x{h} with format {pixel_format} via v4l2-ctl.")
-                command = [
-                    'v4l2-ctl', '-d', device_path,
-                    f'--set-fmt-video=width={w},height={h},pixelformat={pixel_format}'
-                ]
-                subprocess.run(command, check=True, capture_output=True, text=True)
-                logging.info(f"Successfully configured {device_path} with v4l2-ctl.")
-            else:
-                logging.warning("No pixel format specified, skipping v4l2-ctl configuration.")
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            logging.error(f"Failed to configure camera with v4l2-ctl: {e}. "
-                          "OpenCV will now attempt to open the device as-is.")
-
-        # Open the camera *after* attempting external configuration.
-        self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
-
-        # Explicitly set the FOURCC code to ensure OpenCV requests the correct format.
-        if pixel_format:
-            fourcc = cv2.VideoWriter_fourcc(*pixel_format)
-            self.capture.set(cv2.CAP_PROP_FOURCC, fourcc)
-            logging.info(f"Set cv2.CAP_PROP_FOURCC to {pixel_format}.")
+        # Build and use a GStreamer pipeline to bypass V4L2 driver issues in OpenCV.
+        pipeline = self._build_gstreamer_pipeline(selected_index, w, h, pixel_format)
+        self.capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
 
         if not self.capture.isOpened():
-            logging.error(f"FATAL: Could not open camera {selected_index} after all attempts.")
+            logging.error(f"FATAL: Could not open camera {selected_index} with GStreamer pipeline.")
             # A real application should show a user-facing error here.
             return
 
         # Verify the resolution that the camera opened with.
+        # Note: with GStreamer, get() might not be as reliable, but we check anyway.
         final_w = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         final_h = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        logging.info(f"Camera {selected_index} opened with resolution: {final_w}x{final_h}")
+        logging.info(f"Camera {selected_index} opened with resolution: {final_w}x{final_h} (via GStreamer)")
 
+        # GStreamer pipeline forces the resolution, so a mismatch here indicates a deeper problem.
         if final_w != w or final_h != h:
-            logging.warning(f"Resolution mismatch! Expected {w}x{h} but got {final_w}x{final_h}. "
-                            "The driver may not support the requested pixel format or resolution.")
+            logging.warning(f"Resolution mismatch after GStreamer! Expected {w}x{h} but got {final_w}x{final_h}.")
 
         # Start a new worker thread with the new capture object
         self.stop_event.clear()
