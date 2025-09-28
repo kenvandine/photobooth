@@ -233,6 +233,10 @@ class CameraApp(App):
         self.current_camera_name = None
         self.supported_formats = []
 
+        self.face_cascade = cv2.CascadeClassifier('assets/haarcascade_frontalface_default.xml')
+        if self.face_cascade.empty():
+            logging.error("Failed to load Haar Cascade for face detection.")
+
     def get_available_cameras(self):
         """
         Detects and lists available video cameras on the system.
@@ -400,6 +404,21 @@ class CameraApp(App):
             self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
             logging.info(f"Loaded birthday frame: {frame_path}")
 
+        self.hats = []
+        self.hat_files = sorted(glob.glob('assets/hats/*.png'))
+        self.current_hat_index = 0
+        if self.hat_files:
+            for hat_file in self.hat_files:
+                hat = cv2.imread(hat_file, cv2.IMREAD_UNCHANGED)
+                if hat is not None:
+                    self.hats.append(hat)
+            if self.hats:
+                logging.info(f"Loaded {len(self.hats)} hats.")
+            else:
+                logging.warning("Found hat files, but failed to load them.")
+        else:
+            logging.info("No hats found in assets/hats/")
+
         Window.clearcolor = (0.678, 0.847, 0.902, 1)  # Light blue background
         root = FloatLayout()
         main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
@@ -464,6 +483,15 @@ class CameraApp(App):
         )
         self.frame_switch_button.bind(on_press=self.change_birthday_frame)
         root.add_widget(self.frame_switch_button)
+
+        self.hat_switch_button = RoundImageButton(
+            source='assets/hat-icon.png',
+            size_hint=(None, None),
+            size=(128, 128),
+            pos_hint={'center_x': 0.5, 'y': 0.05}
+        )
+        self.hat_switch_button.bind(on_press=self.change_hat)
+        root.add_widget(self.hat_switch_button)
 
         self.countdown_label = Label(
             text="",
@@ -651,6 +679,20 @@ class CameraApp(App):
                 break
         logging.info(f"Changed birthday frame to: {frame_path}")
 
+    def change_hat(self, *args):
+        if not self.hats:
+            return
+
+        self.current_hat_index = (self.current_hat_index + 1) % len(self.hats)
+        logging.info(f"Changed hat to index: {self.current_hat_index}")
+
+        # Clear the display queue to force a redraw with the new hat
+        while not self.display_queue.empty():
+            try:
+                self.display_queue.get_nowait()
+            except queue.Empty:
+                break
+
     def on_resolution_select(self, spinner, text):
         if text == 'Resolution' or text == 'Default' or not self.supported_formats:
             return
@@ -672,20 +714,88 @@ class CameraApp(App):
             logging.error(f"Could not find matching format for selection: {text}")
 
     def _apply_overlay(self, frame):
-        if self.birthday_frame is None:
-            return frame
+        output_frame = frame.copy()
 
-        h, w, _ = frame.shape
-        if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
-            logging.info(f"Creating new overlay cache for resolution {w}x{h}.")
-            self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
+        # Apply birthday frame first
+        if self.birthday_frame is not None:
+            h, w, _ = frame.shape
+            if self.resized_overlay is None or self.resized_overlay.shape[:2] != (h, w):
+                logging.info(f"Creating new birthday frame cache for resolution {w}x{h}.")
+                self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
-        overlay_img = self.resized_overlay[:,:,0:3]
-        mask = self.resized_overlay[:,:,3]
+            overlay_img = self.resized_overlay[:,:,:3]
+            mask = self.resized_overlay[:,:,3]
 
-        background = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
-        foreground = cv2.bitwise_and(overlay_img, overlay_img, mask=mask)
-        return cv2.add(background, foreground)
+            background = cv2.bitwise_and(output_frame, output_frame, mask=cv2.bitwise_not(mask))
+            foreground = cv2.bitwise_and(overlay_img, overlay_img, mask=mask)
+            output_frame = cv2.add(background, foreground)
+
+        # Apply hats on faces
+        if self.hats and not self.face_cascade.empty():
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
+
+            if len(faces) > 0:
+                hat = self.hats[self.current_hat_index]
+
+                for (x, y, w, h) in faces:
+                    # Adjust hat size and position
+                    hat_w = int(w * 1.5)
+                    hat_h = int(hat.shape[0] * (hat_w / hat.shape[1]))
+
+                    hat_x = x - int((hat_w - w) / 2)
+                    hat_y = y - int(hat_h * 0.75)  # Position hat above the face
+
+                    # Resize hat
+                    try:
+                        resized_hat = cv2.resize(hat, (hat_w, hat_h))
+                    except cv2.error:
+                        continue  # Skip if resizing fails
+
+                    # Define ROI, handling boundaries
+                    frame_h, frame_w, _ = output_frame.shape
+
+                    # Top-left corner of where the hat will be placed
+                    roi_y1 = max(hat_y, 0)
+                    roi_x1 = max(hat_x, 0)
+
+                    # Bottom-right corner
+                    roi_y2 = min(hat_y + hat_h, frame_h)
+                    roi_x2 = min(hat_x + hat_w, frame_w)
+
+                    # Calculate the part of the hat that is visible
+                    hat_roi_y1 = max(0, -hat_y)
+                    hat_roi_x1 = max(0, -hat_x)
+
+                    hat_roi_y2 = hat_roi_y1 + (roi_y2 - roi_y1)
+                    hat_roi_x2 = hat_roi_x1 + (roi_x2 - roi_x1)
+
+                    if (hat_roi_y2 - hat_roi_y1) <= 0 or (hat_roi_x2 - hat_roi_x1) <= 0:
+                        continue
+
+                    hat_part = resized_hat[hat_roi_y1:hat_roi_y2, hat_roi_x1:hat_roi_x2]
+
+                    # ROI on the main frame
+                    roi = output_frame[roi_y1:roi_y2, roi_x1:roi_x2]
+
+                    if roi.shape[:2] != hat_part.shape[:2]:
+                        continue
+
+                    # Create mask and inverse mask
+                    hat_alpha = hat_part[:, :, 3]
+                    hat_rgb = hat_part[:, :, :3]
+
+                    # Black-out the area of hat in ROI
+                    roi_bg = cv2.bitwise_and(roi, roi, mask=cv2.bitwise_not(hat_alpha))
+
+                    # Take only region of hat from hat image.
+                    hat_fg = cv2.bitwise_and(hat_rgb, hat_rgb, mask=hat_alpha)
+
+                    # Put hat in ROI and modify the main image
+                    dst = cv2.add(roi_bg, hat_fg)
+                    output_frame[roi_y1:roi_y2, roi_x1:roi_x2] = dst
+
+        return output_frame
 
     def update(self, dt):
         try:
