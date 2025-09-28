@@ -501,35 +501,39 @@ class CameraApp(App):
             self.resolution_selector.text = self.resolution
             w, h = map(int, self.resolution.split('x'))
 
-        # For some drivers, settings are only applied on initialization.
-        # So, we open, set, release, and then open again.
-        logging.info(f"Attempting to set camera {selected_index} to {w}x{h} with re-initialization.")
-        capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
-        capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        # Configure the camera externally with v4l2-ctl before opening it.
+        # This is the most reliable method for stubborn drivers.
+        device_path = f"/dev/video{selected_index}"
+        try:
+            logging.info(f"Attempting to configure {device_path} to {w}x{h} via v4l2-ctl.")
+            # Common pixel formats are MJPG and YUYV. MJPG is often used for high resolutions.
+            pixel_format = 'MJPG'
+            command = [
+                'v4l2-ctl', '-d', device_path,
+                f'--set-fmt-video=width={w},height={h},pixelformat={pixel_format}'
+            ]
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            logging.info(f"Successfully configured {device_path} with v4l2-ctl.")
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logging.error(f"Failed to configure camera with v4l2-ctl: {e}. "
+                          "OpenCV will now attempt to open the device as-is.")
 
-        # Log what the driver reports after the first attempt
-        actual_w_before = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h_before = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        logging.info(f"Resolution before re-open: {actual_w_before}x{actual_h_before}")
-
-        capture.release()
-
-        # Re-open the camera. The driver should now use the new settings.
+        # Open the camera *after* attempting external configuration.
         self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
 
+        if not self.capture.isOpened():
+            logging.error(f"FATAL: Could not open camera {selected_index} after all attempts.")
+            # A real application should show a user-facing error here.
+            return
+
+        # Verify the resolution that the camera opened with.
         final_w = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         final_h = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        logging.info(f"Final resolution after re-open: {final_w}x{final_h}")
+        logging.info(f"Camera {selected_index} opened with resolution: {final_w}x{final_h}")
 
-        # If the resolution is still not what we want, try setting it again
         if final_w != w or final_h != h:
-            logging.warning("Resolution did not stick after re-open. Attempting to set it again.")
-            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            final_w_after_set = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-            final_h_after_set = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            logging.info(f"Resolution after second set attempt: {final_w_after_set}x{final_h_after_set}")
+            logging.warning(f"Resolution mismatch! Expected {w}x{h} but got {final_w}x{final_h}. "
+                            "The driver may not support the requested pixel format or resolution.")
 
         # Start a new worker thread with the new capture object
         self.stop_event.clear()
