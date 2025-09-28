@@ -240,15 +240,16 @@ class CameraApp(App):
 
     def get_supported_resolutions(self, camera_index):
         """
-        Determines the supported resolutions for a given camera.
-        First, it tries to use the `v4l2-ctl` command for a reliable list.
+        Determines the supported resolutions and pixel formats for a given camera.
+        It uses `v4l2-ctl` to get a reliable list of format/resolution combinations.
         If that fails, it falls back to an OpenCV-based trial-and-error method.
 
         Args:
             camera_index (int): The index of the camera to check.
 
         Returns:
-            list: A sorted list of strings representing supported resolutions.
+            list: A sorted list of (width, height, format_str) tuples.
+                  Returns an empty list if no formats can be determined.
         """
         # Try to get resolutions using v4l2-ctl for reliability
         device_path = f"/dev/video{camera_index}"
@@ -262,31 +263,37 @@ class CameraApp(App):
             )
             output = result.stdout
 
-            resolutions = set()
-            # Regex to find lines like 'Size: Discrete 1280x720'
-            pattern = re.compile(r'\s+Size: Discrete\s+(\d+x\d+)')
-            for line in output.split('\n'):
-                match = pattern.search(line)
-                if match:
-                    resolutions.add(match.group(1))
+            formats = []
+            current_format = None
+            format_pattern = re.compile(r"\[\d+\]:\s+'(\w+)'")
+            resolution_pattern = re.compile(r'\s+Size: Discrete\s+(\d+)x(\d+)')
 
-            if resolutions:
-                # Sort resolutions by area (width * height)
-                sorted_resolutions = sorted(
-                    list(resolutions),
-                    key=lambda r: int(r.split('x')[0]) * int(r.split('x')[1])
-                )
-                logging.info(f"Found resolutions for {device_path} via v4l2-ctl: {sorted_resolutions}")
-                return sorted_resolutions
+            for line in output.split('\n'):
+                format_match = format_pattern.search(line)
+                if format_match:
+                    current_format = format_match.group(1)
+                    continue
+
+                if current_format:
+                    resolution_match = resolution_pattern.search(line)
+                    if resolution_match:
+                        w = int(resolution_match.group(1))
+                        h = int(resolution_match.group(2))
+                        formats.append((w, h, current_format))
+
+            if formats:
+                formats.sort(key=lambda f: f[0] * f[1])
+                logging.info(f"Found formats for {device_path} via v4l2-ctl: {formats}")
+                return formats
             else:
-                logging.warning(f"v4l2-ctl for {device_path} gave no output.")
+                logging.warning(f"v4l2-ctl for {device_path} gave no resolution/format output.")
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logging.warning(f"v4l2-ctl for {device_path} failed (is it installed?): {e}. "
                             "Falling back to OpenCV's trial-and-error method.")
 
         # Fallback to OpenCV's trial-and-error method
-        supported_resolutions = []
+        supported_formats = []
         cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} for fallback resolution check.")
@@ -295,7 +302,7 @@ class CameraApp(App):
         for w, h in STANDARD_RESOLUTIONS:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            time.sleep(0.1)  # Give the driver time to settle
+            time.sleep(0.1)
 
             ret, _ = cap.read()
             if not ret:
@@ -306,13 +313,12 @@ class CameraApp(App):
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
             if actual_w == w and actual_h == h:
-                res_str = f"{w}x{h}"
-                if res_str not in supported_resolutions:
-                    supported_resolutions.append(res_str)
+                if (w, h, None) not in supported_formats:
+                    supported_formats.append((w, h, None))
 
         cap.release()
-        logging.info(f"Supported resolutions for camera {camera_index} (OpenCV fallback): {supported_resolutions}")
-        return supported_resolutions
+        logging.info(f"Supported formats for camera {camera_index} (OpenCV fallback): {supported_formats}")
+        return supported_formats
 
     def build(self):
         """
@@ -490,36 +496,49 @@ class CameraApp(App):
         if hasattr(self, 'capture') and self.capture:
             self.capture.release()
 
-        # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index)
-        self.resolution_selector.values = resolutions
+        # Get a list of available formats (width, height, pixel_format)
+        supported_formats = self.get_supported_resolutions(selected_index)
 
-        w, h = (1920, 1080) # Default resolution
-        if resolutions:
-            if not self.resolution or self.resolution not in resolutions:
-                self.resolution = resolutions[-1] # Default to highest
-            self.resolution_selector.text = self.resolution
-            w, h = map(int, self.resolution.split('x'))
+        # Populate the spinner with human-readable options
+        self.resolution_selector.values = [f"{w}x{h} ({f or 'auto'})" for w, h, f in supported_formats]
+
+        # Select the best format to use (highest resolution)
+        w, h, pixel_format = (1920, 1080, 'MJPG') # Default
+        if supported_formats:
+            # Default to the highest resolution available
+            w, h, pixel_format = supported_formats[-1]
+            self.resolution_selector.text = f"{w}x{h} ({pixel_format or 'auto'})"
+            logging.info(f"Selected best format: {w}x{h} at {pixel_format}")
+        else:
+            logging.error("No supported formats found. Falling back to default.")
+            self.resolution_selector.text = "Default"
 
         # Configure the camera externally with v4l2-ctl before opening it.
         # This is the most reliable method for stubborn drivers.
         device_path = f"/dev/video{selected_index}"
         try:
-            logging.info(f"Attempting to configure {device_path} to {w}x{h} via v4l2-ctl.")
-            # Common pixel formats are MJPG and YUYV. MJPG is often used for high resolutions.
-            pixel_format = 'MJPG'
-            command = [
-                'v4l2-ctl', '-d', device_path,
-                f'--set-fmt-video=width={w},height={h},pixelformat={pixel_format}'
-            ]
-            subprocess.run(command, check=True, capture_output=True, text=True)
-            logging.info(f"Successfully configured {device_path} with v4l2-ctl.")
+            if pixel_format:
+                logging.info(f"Attempting to configure {device_path} to {w}x{h} with format {pixel_format} via v4l2-ctl.")
+                command = [
+                    'v4l2-ctl', '-d', device_path,
+                    f'--set-fmt-video=width={w},height={h},pixelformat={pixel_format}'
+                ]
+                subprocess.run(command, check=True, capture_output=True, text=True)
+                logging.info(f"Successfully configured {device_path} with v4l2-ctl.")
+            else:
+                logging.warning("No pixel format specified, skipping v4l2-ctl configuration.")
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logging.error(f"Failed to configure camera with v4l2-ctl: {e}. "
                           "OpenCV will now attempt to open the device as-is.")
 
         # Open the camera *after* attempting external configuration.
         self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
+
+        # Explicitly set the FOURCC code to ensure OpenCV requests the correct format.
+        if pixel_format:
+            fourcc = cv2.VideoWriter_fourcc(*pixel_format)
+            self.capture.set(cv2.CAP_PROP_FOURCC, fourcc)
+            logging.info(f"Set cv2.CAP_PROP_FOURCC to {pixel_format}.")
 
         if not self.capture.isOpened():
             logging.error(f"FATAL: Could not open camera {selected_index} after all attempts.")
