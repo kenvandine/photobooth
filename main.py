@@ -257,15 +257,25 @@ class CameraApp(App):
         if not cap.isOpened():
             logging.error(f"Could not open camera index {camera_index} to get resolutions.")
             return []
+
         # Test a list of standard resolutions
         for w, h in STANDARD_RESOLUTIONS:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+
+            # Some drivers require reading a frame to apply the resolution
+            ret, frame = cap.read()
+            if not ret:
+                logging.warning(f"Could not read frame at {w}x{h} for camera {camera_index}.")
+                continue
+
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
             # If the camera accepts the resolution, add it to the list
             if actual_w == w and actual_h == h:
                 supported_resolutions.append(f"{w}x{h}")
+
         cap.release()
         logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
         return supported_resolutions
