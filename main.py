@@ -240,23 +240,21 @@ class CameraApp(App):
 
     def get_supported_resolutions(self, camera_index):
         """
-        Determines the supported resolutions and pixel formats for a given camera.
-        It uses `v4l2-ctl` to get a reliable list of format/resolution combinations.
-        If that fails, it falls back to an OpenCV-based trial-and-error method.
+        Determines the supported resolutions, pixel formats, and framerates for a given camera.
+        It uses `v4l2-ctl` to get a reliable list of format/resolution/framerate combinations.
+        If that fails, it falls back to a basic OpenCV-based trial-and-error method.
 
         Args:
             camera_index (int): The index of the camera to check.
 
         Returns:
-            list: A sorted list of (width, height, format_str) tuples.
+            list: A sorted list of (width, height, format_str, framerate) tuples.
                   Returns an empty list if no formats can be determined.
         """
-        # Try to get resolutions using v4l2-ctl for reliability
+        # Try to get formats using v4l2-ctl for reliability
         device_path = f"/dev/video{camera_index}"
         try:
-            # Check if v4l2-ctl is available on the system
             subprocess.run(['which', 'v4l2-ctl'], check=True, capture_output=True)
-
             result = subprocess.run(
                 ['v4l2-ctl', '-d', device_path, '--list-formats-ext'],
                 check=True, capture_output=True, text=True
@@ -265,24 +263,33 @@ class CameraApp(App):
 
             formats = []
             current_format = None
+            current_w, current_h = None, None
             format_pattern = re.compile(r"\[\d+\]:\s+'(\w+)'")
             resolution_pattern = re.compile(r'\s+Size: Discrete\s+(\d+)x(\d+)')
+            framerate_pattern = re.compile(r'\s+Interval: Discrete .* \((\d+\.\d+)\s+fps\)')
 
             for line in output.split('\n'):
                 format_match = format_pattern.search(line)
                 if format_match:
                     current_format = format_match.group(1)
+                    current_w, current_h = None, None
                     continue
 
-                if current_format:
-                    resolution_match = resolution_pattern.search(line)
-                    if resolution_match:
-                        w = int(resolution_match.group(1))
-                        h = int(resolution_match.group(2))
-                        formats.append((w, h, current_format))
+                resolution_match = resolution_pattern.search(line)
+                if resolution_match:
+                    current_w = int(resolution_match.group(1))
+                    current_h = int(resolution_match.group(2))
+                    continue
+
+                if current_format and current_w and current_h:
+                    framerate_match = framerate_pattern.search(line)
+                    if framerate_match:
+                        fps = float(framerate_match.group(1))
+                        formats.append((current_w, current_h, current_format, int(fps)))
 
             if formats:
-                formats.sort(key=lambda f: f[0] * f[1])
+                # Sort by resolution area, then by framerate
+                formats.sort(key=lambda f: (f[0] * f[1], f[3]))
                 logging.info(f"Found formats for {device_path} via v4l2-ctl: {formats}")
                 return formats
             else:
@@ -306,15 +313,15 @@ class CameraApp(App):
 
             ret, _ = cap.read()
             if not ret:
-                logging.warning(f"Could not read frame at {w}x{h} for camera {camera_index}.")
                 continue
 
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
             if actual_w == w and actual_h == h:
-                if (w, h, None) not in supported_formats:
-                    supported_formats.append((w, h, None))
+                # Can't determine format or framerate here, so use None
+                if (w, h, None, None) not in supported_formats:
+                    supported_formats.append((w, h, None, None))
 
         cap.release()
         logging.info(f"Supported formats for camera {camera_index} (OpenCV fallback): {supported_formats}")
@@ -518,26 +525,28 @@ class CameraApp(App):
         supported_formats = self.get_supported_resolutions(selected_index)
 
         # Populate the spinner with human-readable options
-        self.resolution_selector.values = [f"{w}x{h} ({f or 'auto'})" for w, h, f in supported_formats]
+        self.resolution_selector.values = [f"{w}x{h} ({f}) @ {fps}fps" for w, h, f, fps in supported_formats]
 
-        # Select the best format to use (highest resolution)
-        w, h, pixel_format = (1920, 1080, 'MJPG') # Sensible default
+        # Select the best format to use (highest resolution, prefer MJPG, highest framerate)
+        w, h, pixel_format, framerate = (1920, 1080, 'MJPG', 30) # Sensible default
         if supported_formats:
-            # Default to the highest resolution available, preferring MJPG for high-res
-            best_format = supported_formats[-1]
-            for f in reversed(supported_formats):
-                if f[0] == best_format[0] and f[1] == best_format[1] and f[2] == 'MJPG':
-                    best_format = f
+            # The list is sorted by resolution, then framerate. The last item is the best.
+            w, h, pixel_format, framerate = supported_formats[-1]
+
+            # But, we prefer MJPG for high resolutions if available at the same res/fps.
+            for f_w, f_h, f_fmt, f_fps in reversed(supported_formats):
+                if (f_w, f_h, f_fps) == (w, h, framerate) and f_fmt == 'MJPG':
+                    pixel_format = 'MJPG'
                     break
-            w, h, pixel_format = best_format
-            self.resolution_selector.text = f"{w}x{h} ({pixel_format or 'auto'})"
-            logging.info(f"Selected best format: {w}x{h} at {pixel_format}")
+
+            self.resolution_selector.text = f"{w}x{h} ({pixel_format}) @ {framerate}fps"
+            logging.info(f"Selected best format: {w}x{h}, {pixel_format} @ {framerate}fps")
         else:
             logging.error("No supported formats found. Falling back to default.")
             self.resolution_selector.text = "Default"
 
         # Build and use a GStreamer pipeline to bypass V4L2 driver issues in OpenCV.
-        pipeline = self._build_gstreamer_pipeline(selected_index, w, h, pixel_format)
+        pipeline = self._build_gstreamer_pipeline(selected_index, w, h, pixel_format, framerate)
         self.capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
 
         if not self.capture.isOpened():
