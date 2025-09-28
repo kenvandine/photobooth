@@ -15,6 +15,12 @@ os.environ['KIVY_NO_ARGS'] = '1'
 import kivy
 kivy.require('2.3.1')
 
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GLib
+
+Gst.init(None)
+
 from kivy.app import App
 from kivy.animation import Animation
 from kivy.core.window import Window
@@ -150,66 +156,60 @@ class RoundImageButton(ButtonBehavior, Image):
         self.stencil_shape.size = self.size
 
 
-class CameraWorker(threading.Thread):
-    """
-    A worker thread that reads frames from the camera and puts them in a queue.
-    """
-    def __init__(self, capture, frame_queue, stop_event, app, **kwargs):
-        super(CameraWorker, self).__init__(**kwargs)
-        self.capture = capture
-        self.frame_queue = frame_queue
-        self.stop_event = stop_event
-        self.app = app
+class GlibMainLoopWorker(threading.Thread):
+    """A worker thread that runs the GLib.MainLoop."""
+    def __init__(self, **kwargs):
+        super(GlibMainLoopWorker, self).__init__(**kwargs)
+        self.main_loop = GLib.MainLoop()
 
     def run(self):
-        frame_count = 0
-        total_capture_time = 0
-        total_overlay_time = 0
-        total_process_time = 0
+        logging.info("GLib main loop worker started.")
+        self.main_loop.run()
+        logging.info("GLib main loop worker stopped.")
 
+    def stop(self):
+        if self.main_loop.is_running():
+            self.main_loop.quit()
+
+class FrameProcessorWorker(threading.Thread):
+    """A worker thread to process GStreamer frames."""
+    def __init__(self, app, **kwargs):
+        super(FrameProcessorWorker, self).__init__(**kwargs)
+        self.app = app
+        self.stop_event = threading.Event()
+
+    def run(self):
+        logging.info("Frame processor worker started.")
         while not self.stop_event.is_set():
-            if not self.capture.isOpened():
-                time.sleep(0.01)
+            try:
+                sample = self.app.sample_queue.get(timeout=0.1)
+            except queue.Empty:
                 continue
 
-            start_time = time.time()
-            ret, frame = self.capture.read()
-            capture_time = time.time() - start_time
+            if sample:
+                buf = sample.get_buffer()
+                caps = sample.get_caps()
+                h = caps.get_structure(0).get_value("height")
+                w = caps.get_structure(0).get_value("width")
 
-            if ret:
-                start_overlay_time = time.time()
-                frame = self.app._apply_overlay(frame)
-                overlay_time = time.time() - start_overlay_time
+                success, map_info = buf.map(Gst.MapFlags.READ)
+                if success:
+                    frame = np.ndarray((h, w, 3), buffer=map_info.data, dtype=np.uint8)
 
-                # Process the frame for display (convert to RGB and flip)
-                start_process_time = time.time()
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                buf = cv2.flip(frame_rgb, 0).tobytes()
-                process_time = time.time() - start_process_time
+                    # The frame from GStreamer is BGR. _apply_overlay expects BGR.
+                    processed_frame = self.app._apply_overlay(frame.copy())
+                    self.app.latest_processed_frame = processed_frame
 
-                total_capture_time += capture_time
-                total_overlay_time += overlay_time
-                total_process_time += process_time
-                frame_count += 1
+                    try:
+                        self.app.display_queue.put_nowait(processed_frame)
+                    except queue.Full:
+                        pass # UI is lagging
 
-                if frame_count >= 60:
-                    avg_capture = total_capture_time / frame_count
-                    avg_overlay = total_overlay_time / frame_count
-                    avg_process = total_process_time / frame_count
-                    logging.info(f"Worker Stats (last {frame_count} frames): "
-                                 f"Avg Capture: {avg_capture:.4f}s, "
-                                 f"Avg Overlay: {avg_overlay:.4f}s, "
-                                 f"Avg Process: {avg_process:.4f}s")
-                    frame_count = 0
-                    total_capture_time = 0
-                    total_overlay_time = 0
-                    total_process_time = 0
+                    buf.unmap(map_info)
+        logging.info("Frame processor worker stopped.")
 
-                try:
-                    self.frame_queue.put_nowait((buf, frame.shape))
-                except queue.Full:
-                    pass
-
+    def stop(self):
+        self.stop_event.set()
 
 class CameraApp(App):
     """
@@ -224,61 +224,170 @@ class CameraApp(App):
         self.device = device
         self.resolution = resolution
         self.resized_overlay = None
+        self.pipeline = None
+        self.glib_worker = None
+        self.frame_processor_worker = None
+        self.sample_queue = queue.Queue(maxsize=5)  # Raw samples from GStreamer
+        self.display_queue = queue.Queue(maxsize=2) # Processed frames for the UI
+        self.latest_processed_frame = None          # For photo capture
+        self.current_camera_name = None
+        self.supported_formats = []
 
     def get_available_cameras(self):
         """
         Detects and lists available video cameras on the system.
         """
         cameras = {}
+        # Iterate through the first 10 /dev/video nodes
         for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
-                cap.release()
+            device_path = f"/dev/video{i}"
+            if os.path.exists(device_path):
+                try:
+                    # Check if the device is a video capture device
+                    result = subprocess.run(
+                        ['v4l2-ctl', '-d', device_path, '--query-cap'],
+                        check=True, capture_output=True, text=True
+                    )
+                    if "Video Capture" in result.stdout:
+                        cameras[f"Camera {i}"] = {'index': i, 'type': 'v4l2'}
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    # Fallback for systems without v4l2-ctl or for non-v4l2 devices
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        cameras[f"Camera {i}"] = {'index': i, 'type': 'default'}
+                        cap.release()
+            else:
+                # No more video devices
+                break
         logging.info(f"Available cameras: {cameras}")
         return cameras
 
     def get_supported_resolutions(self, camera_index):
         """
-        Determines the supported resolutions for a given camera.
-
-        It checks a predefined list of common resolutions against the camera's
-        capabilities.
+        Determines the supported resolutions, pixel formats, and framerates for a given camera.
+        It uses `v4l2-ctl` to get a reliable list of format/resolution/framerate combinations.
+        If that fails, it falls back to a basic OpenCV-based trial-and-error method.
 
         Args:
             camera_index (int): The index of the camera to check.
 
         Returns:
-            list: A list of strings, where each string represents a
-                  supported resolution (e.g., "1920x1080").
+            list: A sorted list of (width, height, format_str, framerate) tuples.
+                  Returns an empty list if no formats can be determined.
         """
-        supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        # Try to get formats using v4l2-ctl for reliability
+        device_path = f"/dev/video{camera_index}"
+        try:
+            # Ensure v4l2-ctl is installed
+            subprocess.run(['which', 'v4l2-ctl'], check=True, capture_output=True)
+
+            # Get the output from v4l2-ctl
+            result = subprocess.run(
+                ['v4l2-ctl', '-d', device_path, '--list-formats-ext'],
+                check=True, capture_output=True, text=True,
+                errors='ignore'
+            )
+            output = result.stdout
+            logging.info(f"v4l2-ctl output for {device_path}:\n{output}")
+
+            formats = []
+            format_pattern = re.compile(r"\[\d+\]:\s+'(\w+)'")
+            resolution_pattern = re.compile(r'\s+Size: Discrete\s+(\d+)x(\d+)')
+            framerate_pattern = re.compile(r'\s+Interval: Discrete .* \((\d+\.\d+)\s+fps\)')
+
+            # Split output into blocks for each format
+            format_blocks = re.split(r'(?=\[\d+\]:)', output)
+
+            for block in format_blocks:
+                if not block.strip():
+                    continue
+
+                format_match = format_pattern.search(block)
+                if not format_match:
+                    continue
+                current_format = format_match.group(1)
+
+                # Split each format block by resolution
+                resolution_blocks = re.split(r'(?=\s+Size: Discrete)', block)
+
+                for res_block in resolution_blocks:
+                    if not res_block.strip() or "Size: Discrete" not in res_block:
+                        continue
+
+                    resolution_match = resolution_pattern.search(res_block)
+                    if not resolution_match:
+                        continue
+
+                    w = int(resolution_match.group(1))
+                    h = int(resolution_match.group(2))
+
+                    framerate_matches = framerate_pattern.finditer(res_block)
+                    for fr_match in framerate_matches:
+                        fps = float(fr_match.group(1))
+                        formats.append((w, h, current_format, int(fps)))
+
+            if formats:
+                # Remove duplicates and sort the formats
+                formats = sorted(list(set(formats)), key=lambda f: (f[0] * f[1], f[3]))
+                logging.info(f"Found formats for {device_path} via v4l2-ctl: {formats}")
+                return formats
+            else:
+                logging.warning(f"v4l2-ctl for {device_path} gave no resolution/format output. "
+                                "Falling back to OpenCV's trial-and-error method.")
+
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logging.warning(f"v4l2-ctl for {device_path} failed (is it installed?): {e}. "
+                            "Falling back to OpenCV's trial-and-error method.")
+
+        # Fallback to OpenCV's trial-and-error method
+        supported_formats = []
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
-            logging.error(f"Could not open camera index {camera_index} to get resolutions.")
+            logging.error(f"Could not open camera index {camera_index} for fallback resolution check.")
             return []
-        # Test a list of standard resolutions
-        for w, h in STANDARD_RESOLUTIONS:
+
+        # Add the user-specified resolution to the list to ensure it is checked
+        resolutions_to_check = STANDARD_RESOLUTIONS[:] # Make a copy
+        if self.resolution:
+            try:
+                w, h = map(int, self.resolution.split('x'))
+                if (w, h) not in resolutions_to_check:
+                    resolutions_to_check.append((w, h))
+            except (ValueError, TypeError):
+                logging.error(f"Invalid resolution format: {self.resolution}")
+
+        for w, h in resolutions_to_check:
+            # Set the desired resolution
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+
+            # Allow some time for the setting to apply
+            time.sleep(0.2)
+
+            # Read the actual resolution back from the camera
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # If the camera accepts the resolution, add it to the list
+
+            logging.info(f"Testing {w}x{h}, got {actual_w}x{actual_h}")
+            # Check if the camera accepted the resolution
             if actual_w == w and actual_h == h:
-                supported_resolutions.append(f"{w}x{h}")
+                # Can't determine format or framerate here, so use a sensible default
+                if (w, h, 'YUYV', 30) not in supported_formats:
+                    supported_formats.append((w, h, 'YUYV', 30))
+
         cap.release()
-        logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
-        return supported_resolutions
+
+        if supported_formats:
+            supported_formats.sort(key=lambda f: (f[0] * f[1], f[3]))
+            logging.info(f"Supported formats for camera {camera_index} (OpenCV fallback): {supported_formats}")
+        else:
+            logging.warning(f"OpenCV fallback could not determine any supported resolutions for camera {camera_index}.")
+
+        return supported_formats
 
     def build(self):
         """
         Builds the application's user interface.
-
-        This method sets up the layout, widgets, and camera feed. It's the
-        main entry point for creating the app's visual components.
-
-        Returns:
-            FloatLayout: The root widget of the application.
         """
         Window.fullscreen = True
         self.birthday_frame = None
@@ -295,7 +404,6 @@ class CameraApp(App):
         root = FloatLayout()
         main_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
 
-        # Add a banner at the top, custom or default
         banner_path = os.environ.get('CUSTOM_BANNER_PATH', DEFAULT_BANNER_PATH)
         if os.path.exists(banner_path):
             banner = Image(
@@ -309,50 +417,36 @@ class CameraApp(App):
         else:
             logging.warning(f"Banner image not found at path: {banner_path}")
 
-        # This widget will display the camera feed
         self.camera_view = Image()
         main_layout.add_widget(self.camera_view)
 
-        # Always get the full list of cameras with their types
         self.available_cameras = self.get_available_cameras()
-
         if not self.available_cameras:
             logging.error("No cameras found!")
-            # Optionally, display a message to the user in the UI
             return root
 
         camera_names = list(self.available_cameras.keys())
-        initial_camera_name = camera_names[0]  # Default to the first camera
+        initial_camera_name = camera_names[0]
 
         if self.device is not None:
-            # If a device index is specified, try to find the corresponding camera name
-            found = False
             for name, info in self.available_cameras.items():
                 if info['index'] == self.device:
                     initial_camera_name = name
-                    found = True
                     break
-            if not found:
-                logging.warning(f"Device index {self.device} not found or is not available. "
-                                f"Falling back to default camera.")
 
-        # Spinner for resolution selection (will be moved to a popup)
         self.resolution_selector = Spinner(text="Resolution", values=[], size_hint_y=None, height=50)
         self.resolution_selector.bind(text=self.on_resolution_select)
 
-        # Layout for the capture button, centered horizontally
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=100)
-        button_layout.add_widget(Widget())  # Left spacer
+        button_layout.add_widget(Widget())
         self.capture_button = RoundButton(size_hint=(None, None), size=(240, 240))
         self.capture_button.bind(on_press=self.capture_photo)
         button_layout.add_widget(self.capture_button)
-        button_layout.add_widget(Widget())  # Right spacer
+        button_layout.add_widget(Widget())
         main_layout.add_widget(button_layout)
 
-        # The FloatLayout is used to allow overlaying widgets
         root.add_widget(main_layout)
 
-        # A button to open camera and resolution settings
         self.camera_switch_button = RoundImageButton(
             source='assets/system-settings.png',
             size_hint=(None, None),
@@ -362,7 +456,6 @@ class CameraApp(App):
         self.camera_switch_button.bind(on_press=self.open_camera_selector)
         root.add_widget(self.camera_switch_button)
 
-        # A button to change the birthday frame
         self.frame_switch_button = RoundImageButton(
             source='assets/change-frame.png',
             size_hint=(None, None),
@@ -372,7 +465,6 @@ class CameraApp(App):
         self.frame_switch_button.bind(on_press=self.change_birthday_frame)
         root.add_widget(self.frame_switch_button)
 
-        # Add a label for the countdown timer
         self.countdown_label = Label(
             text="",
             font_size='200sp',
@@ -385,7 +477,6 @@ class CameraApp(App):
         root.add_widget(self.countdown_label)
         self.countdown_active = False
 
-        # A white widget for the flash effect
         self.flash = Widget(opacity=0)
         with self.flash.canvas:
             Color(1, 1, 1)
@@ -393,126 +484,146 @@ class CameraApp(App):
         self.flash.bind(size=self._update_flash_rect, pos=self._update_flash_rect)
         root.add_widget(self.flash)
 
-        self.frame_queue = queue.Queue(maxsize=1)  # Store only the latest frame
-        self.stop_event = threading.Event()
-        self.camera_worker = None
+        self.glib_worker = GlibMainLoopWorker()
+        self.glib_worker.start()
 
-        # Initialize with the selected or default camera
-        self.update_camera(initial_camera_name)
+        self.frame_processor_worker = FrameProcessorWorker(self)
+        self.frame_processor_worker.start()
 
-        # Schedule the camera feed update
-        Clock.schedule_interval(self.update, 1.0 / 30.0)  # 30 FPS
+        self.set_active_camera(initial_camera_name)
 
-        # Create a Kivy-safe trigger for capturing a photo
+        Clock.schedule_interval(self.update, 1/60.0)
+
         self.capture_trigger = Clock.create_trigger(self.capture_photo)
-        # Initialize and start the voice listener
-        try:
-            self.voice_listener = VoiceListener(callback=self.capture_trigger)
-            self.voice_listener.start()
-        except Exception as e:
-            logging.error(f"Failed to start voice listener: {e}")
+        if VOICE_ENABLED:
+            try:
+                self.voice_listener = VoiceListener(callback=self.capture_trigger)
+                self.voice_listener.start()
+            except Exception as e:
+                logging.error(f"Failed to start voice listener: {e}")
+                self.voice_listener = None
+        else:
             self.voice_listener = None
 
         return root
 
     def _update_flash_rect(self, instance, value):
-        """
-        Callback to update the flash rectangle's size and position.
-
-        Args:
-            instance: The widget instance.
-            value: The new size or position value.
-        """
         self.flash_rect.pos = instance.pos
         self.flash_rect.size = instance.size
 
-    def update_camera(self, camera_name):
-        """
-        Switches the active camera and updates the resolution list.
+    def on_new_sample(self, sink):
+        sample = sink.emit("pull-sample")
+        if sample:
+            try:
+                self.sample_queue.put_nowait(sample)
+            except queue.Full:
+                pass
+        return Gst.FlowReturn.OK
 
-        Args:
-            camera_name (str): The name of the camera to switch to.
-        """
+    def set_pipeline_format(self, w, h, pixel_format, framerate):
+        logging.info(f"Setting pipeline to: {w}x{h} ({pixel_format}) @ {framerate}fps")
+
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
+            logging.info("Stopped previous GStreamer pipeline.")
+
+        camera_info = self.available_cameras[self.current_camera_name]
+        selected_index = camera_info['index']
+
+        self.pipeline = Gst.Pipeline.new("camera-pipeline")
+        source = Gst.ElementFactory.make("v4l2src", "source")
+        source.set_property("device", f"/dev/video{selected_index}")
+
+        if pixel_format == 'MJPG':
+            caps_str = f"image/jpeg,width={w},height={h},framerate={framerate}/1"
+            decoder = Gst.ElementFactory.make("jpegdec", "decoder")
+        else:
+            caps_str = f"video/x-raw,format={pixel_format},width={w},height={h},framerate={framerate}/1"
+            decoder = None
+
+        caps = Gst.Caps.from_string(caps_str)
+        caps_filter = Gst.ElementFactory.make("capsfilter", "caps_filter")
+        caps_filter.set_property("caps", caps)
+
+        videoconvert = Gst.ElementFactory.make("videoconvert", "videoconvert")
+        final_caps = Gst.Caps.from_string("video/x-raw,format=BGR")
+        final_caps_filter = Gst.ElementFactory.make("capsfilter", "final_caps_filter")
+        final_caps_filter.set_property("caps", final_caps)
+
+        sink = Gst.ElementFactory.make("appsink", "sink")
+        sink.set_property("emit-signals", True)
+        sink.set_property("max-buffers", 1)
+        sink.set_property("drop", True)
+        sink.connect("new-sample", self.on_new_sample)
+
+        elements = [source, caps_filter, videoconvert, final_caps_filter, sink]
+        if decoder:
+            elements.insert(2, decoder)
+
+        for el in elements:
+            self.pipeline.add(el)
+
+        source.link(caps_filter)
+        if decoder:
+            caps_filter.link(decoder)
+            decoder.link(videoconvert)
+        else:
+            caps_filter.link(videoconvert)
+        videoconvert.link(final_caps_filter)
+        final_caps_filter.link(sink)
+
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            logging.error("Unable to set the pipeline to the playing state.")
+            return
+
+        logging.info("GStreamer pipeline started successfully.")
+        self.resolution_selector.text = f"{w}x{h} ({pixel_format}) @ {framerate}fps"
+
+    def set_active_camera(self, camera_name):
+        self.current_camera_name = camera_name
         camera_info = self.available_cameras[camera_name]
         selected_index = camera_info['index']
-        logging.info(f"Switching to camera: {camera_name} (index: {selected_index})")
+        logging.info(f"Setting active camera to: {camera_name} (index: {selected_index})")
 
-        # Stop the existing worker thread if it's running
-        if self.camera_worker and self.camera_worker.is_alive():
-            self.stop_event.set()
-            self.camera_worker.join()
+        self.supported_formats = self.get_supported_resolutions(selected_index)
+        self.resolution_selector.values = [f"{w}x{h} ({f}) @ {fps}fps" for w, h, f, fps, in self.supported_formats]
 
-        # Release the previous camera capture if it exists
-        if hasattr(self, 'capture') and self.capture:
-            self.capture.release()
-
-        # Update resolutions and set the camera to the highest available one
-        resolutions = self.get_supported_resolutions(selected_index)
-        self.resolution_selector.values = resolutions
-
-        w, h = (1920, 1080) # Default resolution
-        if resolutions:
-            if not self.resolution or self.resolution not in resolutions:
-                self.resolution = resolutions[-1] # Default to highest
-            self.resolution_selector.text = self.resolution
-            w, h = map(int, self.resolution.split('x'))
-
-        self.capture = cv2.VideoCapture(selected_index)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-
-        logging.info(f"Set camera {selected_index} to {w}x{h}")
-
-        # Start a new worker thread with the new capture object
-        self.stop_event.clear()
-        self.camera_worker = CameraWorker(
-            self.capture, self.frame_queue, self.stop_event, self
-        )
-        self.camera_worker.start()
+        if self.supported_formats:
+            w, h, pixel_format, framerate = self.supported_formats[-1]
+            for f_w, f_h, f_fmt, f_fps in reversed(self.supported_formats):
+                if (f_w, f_h, f_fps) == (w, h, framerate) and f_fmt == 'MJPG':
+                    pixel_format = 'MJPG'
+                    break
+            self.set_pipeline_format(w, h, pixel_format, framerate)
+        else:
+            logging.error("No supported formats found for this camera.")
+            self.resolution_selector.text = "Default"
+            self.resolution_selector.values = []
 
     def on_camera_select(self, camera_name):
-        """
-        Event handler for camera selection.
-
-        Args:
-            camera_name (str): The name of the selected camera.
-        """
-        self.update_camera(camera_name)
+        self.set_active_camera(camera_name)
 
     def open_camera_selector(self, instance):
-        """
-        Opens a popup for selecting the camera and resolution.
-
-        Args:
-            instance: The widget instance that triggered the event.
-        """
         content = BoxLayout(orientation='vertical', spacing=10, padding=10)
         popup = Popup(title='Camera & Resolution', content=content, size_hint=(0.8, 0.9))
 
-        # Add camera selection buttons
         content.add_widget(Label(text='Cameras', size_hint_y=None, height=40))
         for camera_name in self.available_cameras.keys():
             btn = Button(text=camera_name, size_hint_y=None, height=50)
             btn.bind(on_release=lambda x, name=camera_name: self.select_camera_and_close(name, popup))
             content.add_widget(btn)
 
-        # Add the resolution spinner to the popup
         content.add_widget(Label(text='Resolution', size_hint_y=None, height=40))
         if self.resolution_selector.parent:
-            # Ensure the widget is not attached to another parent
             self.resolution_selector.parent.remove_widget(self.resolution_selector)
         content.add_widget(self.resolution_selector)
 
         def cleanup_on_dismiss(popup_instance):
-            """
-            Ensures the resolution selector is removed from the popup content
-            when the popup is dismissed, so it can be re-added later without issues.
-            """
             if self.resolution_selector.parent:
                 self.resolution_selector.parent.remove_widget(self.resolution_selector)
         popup.bind(on_dismiss=cleanup_on_dismiss)
 
-        # Add a close button to the popup
         close_button = Button(text='Close', size_hint_y=None, height=50)
         close_button.bind(on_release=popup.dismiss)
         content.add_widget(close_button)
@@ -520,58 +631,47 @@ class CameraApp(App):
         popup.open()
 
     def select_camera_and_close(self, camera_name, popup):
-        """
-        Selects a camera and closes the popup.
-
-        Args:
-            camera_name (str): The name of the camera to select.
-            popup (Popup): The popup instance to be closed.
-        """
         self.on_camera_select(camera_name)
         popup.dismiss()
 
     def change_birthday_frame(self, *args):
-        """
-        Cycles to the next available birthday frame.
-        """
         if not self.frame_files:
             return
 
-        # Increment index and wrap around
         self.current_frame_index = (self.current_frame_index + 1) % len(self.frame_files)
 
-        # Load the new frame
         frame_path = self.frame_files[self.current_frame_index]
         self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
         self.resized_overlay = None
 
-        # Clear the queue of any stale frames to ensure the new frame is shown
-        while not self.frame_queue.empty():
+        while not self.display_queue.empty():
             try:
-                self.frame_queue.get_nowait()
+                self.display_queue.get_nowait()
             except queue.Empty:
                 break
         logging.info(f"Changed birthday frame to: {frame_path}")
 
     def on_resolution_select(self, spinner, text):
-        """
-        Event handler for resolution selection from the spinner.
-
-        Args:
-            spinner: The spinner instance.
-            text (str): The selected resolution string (e.g., "1920x1080").
-        """
-        if text == 'Default' or not hasattr(self, 'capture') or not self.capture.isOpened():
+        if text == 'Resolution' or text == 'Default' or not self.supported_formats:
             return
-        w, h = map(int, text.split('x'))
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-        logging.info(f"Resolution changed to {w}x{h}")
+
+        logging.info(f"User selected resolution: {text}")
+
+        selected_format = None
+        for f in self.supported_formats:
+            format_str = f"{f[0]}x{f[1]} ({f[2]}) @ {f[3]}fps"
+            if format_str == text:
+                selected_format = f
+                break
+
+        if selected_format:
+            logging.info(f"Found matching format: {selected_format}")
+            w, h, pixel_format, framerate = selected_format
+            self.set_pipeline_format(w, h, pixel_format, framerate)
+        else:
+            logging.error(f"Could not find matching format for selection: {text}")
 
     def _apply_overlay(self, frame):
-        """
-        Applies the birthday frame overlay to a given frame.
-        """
         if self.birthday_frame is None:
             return frame
 
@@ -580,47 +680,38 @@ class CameraApp(App):
             logging.info(f"Creating new overlay cache for resolution {w}x{h}.")
             self.resized_overlay = cv2.resize(self.birthday_frame, (w, h))
 
-        overlay_img = self.resized_overlay[:,:,0:3] # BGR channels
-        mask = self.resized_overlay[:,:,3] # Alpha channel
+        overlay_img = self.resized_overlay[:,:,0:3]
+        mask = self.resized_overlay[:,:,3]
 
-        # Black-out the area of the overlay in the background frame
         background = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
-
-        # Take only the region of the overlay image.
         foreground = cv2.bitwise_and(overlay_img, overlay_img, mask=mask)
-
-        # Add the two images together
         return cv2.add(background, foreground)
 
     def update(self, dt):
-        """
-        Updates the camera view with a new frame from the queue.
-        This method is called repeatedly by the Kivy Clock.
-        Args:
-            dt (float): The time elapsed since the last update.
-        """
         try:
-            buf, shape = self.frame_queue.get_nowait()
-
-            # Create a Kivy texture from the byte buffer
-            image_texture = Texture.create(
-                size=(shape[1], shape[0]), colorfmt='rgb'
-            )
-            image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
-            # The buffer is already flipped, so we just display it.
-            self.camera_view.texture = image_texture
+            frame = self.display_queue.get_nowait()
+            while not self.display_queue.empty():
+                try:
+                    frame = self.display_queue.get_nowait()
+                except queue.Empty:
+                    break
         except queue.Empty:
-            pass  # No new frame available
+            return
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        buf = cv2.flip(frame_rgb, 0).tobytes()
+
+        image_texture = Texture.create(
+            size=(frame_rgb.shape[1], frame_rgb.shape[0]), colorfmt='rgb'
+        )
+        image_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+        self.camera_view.texture = image_texture
 
     def do_flash(self):
-        """Triggers a flash animation on the screen."""
         self.flash.opacity = 1
         Animation(opacity=0, duration=0.2).start(self.flash)
 
     def capture_photo(self, *args):
-        """
-        Starts a countdown before taking a photo.
-        """
         if self.countdown_active:
             return
 
@@ -631,9 +722,6 @@ class CameraApp(App):
         Clock.schedule_interval(self.update_countdown, 1)
 
     def update_countdown(self, dt):
-        """
-        Updates the countdown label and takes a photo when the countdown finishes.
-        """
         self.countdown_number -= 1
         if self.countdown_number > 0:
             self.countdown_label.text = str(self.countdown_number)
@@ -642,39 +730,29 @@ class CameraApp(App):
             self._take_and_save_photo()
             self.countdown_active = False
             self.capture_button.disabled = False
-            return False  # Stop the clock event
+            return False
 
     def _take_and_save_photo(self, *args):
-        """
-        Captures a photo, saves it, and uploads it to the backend.
-        """
-        if not hasattr(self, 'capture') or not self.capture.isOpened():
-            logging.error("No camera is active to take a photo.")
+        if self.latest_processed_frame is None:
+            logging.error("No frame available to take a photo.")
             return
-        # Create the 'photos' directory if it doesn't exist
+
         if not os.path.exists("photos"):
             os.makedirs("photos")
-        ret, frame = self.capture.read()
-        if ret:
-            # Frame is BGR, overlay is BGRA. This is what _apply_overlay expects.
-            frame_with_overlay = self._apply_overlay(frame)
 
-            now = datetime.now()
-            filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
-            # cv2.imwrite expects BGR, which is what we have.
-            cv2.imwrite(filename, frame_with_overlay)
-            logging.info(f"Photo saved as {filename}")
-            self.do_flash()
+        frame_with_overlay = self.latest_processed_frame
 
-            # Upload the photo to the backend if URL is set
-            if PHOTOBOOTH_URL:
-                logging.info("Uploading photo to server")
-                self._upload_photo(filename)
+        now = datetime.now()
+        filename = f"photos/photo_{now.strftime('%Y%m%d_%H%M%S')}.png"
+        cv2.imwrite(filename, frame_with_overlay)
+        logging.info(f"Photo saved as {filename}")
+        self.do_flash()
+
+        if PHOTOBOOTH_URL:
+            logging.info("Uploading photo to server")
+            self._upload_photo(filename)
 
     def _upload_photo(self, filename):
-        """
-        Uploads the photo to the backend API.
-        """
         try:
             with open(filename, 'rb') as f:
                 files = {'file': (os.path.basename(filename), f, 'image/png')}
@@ -687,18 +765,23 @@ class CameraApp(App):
             logging.error(f"Error uploading photo: {e}")
 
     def on_stop(self):
-        """
-        Cleanly releases the camera capture and stops the voice listener
-        when the application is closed.
-        """
+        logging.info("Stopping application...")
         if hasattr(self, 'voice_listener') and self.voice_listener:
             self.voice_listener.stop()
-        if self.camera_worker and self.camera_worker.is_alive():
-            self.stop_event.set()
-            self.camera_worker.join()
-        if hasattr(self, 'capture') and self.capture:
-            self.capture.release()
-            logging.info("Camera released.")
+
+        if self.frame_processor_worker:
+            self.frame_processor_worker.stop()
+            self.frame_processor_worker.join()
+            logging.info("Frame processor worker stopped.")
+
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
+            logging.info("GStreamer pipeline state set to NULL.")
+
+        if self.glib_worker:
+            self.glib_worker.stop()
+            self.glib_worker.join()
+            logging.info("GLib main loop worker stopped.")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="A Kivy-based camera app.")
@@ -707,8 +790,6 @@ if __name__ == '__main__':
     device_path = args.device
     device_index = None
     if device_path:
-        # Try to extract a numeric index from the end of the string,
-        # as cv2.VideoCapture prefers integer indices on Linux.
         match = re.search(r'\d+$', device_path)
         if match:
             device_index = int(match.group(0))
