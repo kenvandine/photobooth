@@ -501,11 +501,35 @@ class CameraApp(App):
             self.resolution_selector.text = self.resolution
             w, h = map(int, self.resolution.split('x'))
 
-        self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        # For some drivers, settings are only applied on initialization.
+        # So, we open, set, release, and then open again.
+        logging.info(f"Attempting to set camera {selected_index} to {w}x{h} with re-initialization.")
+        capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
+        capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
 
-        logging.info(f"Set camera {selected_index} to {w}x{h}")
+        # Log what the driver reports after the first attempt
+        actual_w_before = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h_before = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        logging.info(f"Resolution before re-open: {actual_w_before}x{actual_h_before}")
+
+        capture.release()
+
+        # Re-open the camera. The driver should now use the new settings.
+        self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
+
+        final_w = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        final_h = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        logging.info(f"Final resolution after re-open: {final_w}x{final_h}")
+
+        # If the resolution is still not what we want, try setting it again
+        if final_w != w or final_h != h:
+            logging.warning("Resolution did not stick after re-open. Attempting to set it again.")
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            final_w_after_set = int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            final_h_after_set = int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            logging.info(f"Resolution after second set attempt: {final_w_after_set}x{final_h_after_set}")
 
         # Start a new worker thread with the new capture object
         self.stop_event.clear()
