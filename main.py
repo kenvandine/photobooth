@@ -702,17 +702,21 @@ class CameraApp(App):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="A Kivy-based camera app.")
-    parser.add_argument('--device', help='The camera device index to use (e.g., 0)')
+    parser.add_argument('--device', help='The v4l device path to use (e.g., /dev/video0)')
     args = parser.parse_args()
-    device = args.device
-    if device:
-        try:
-            device = int(device)
-        except ValueError:
-            logging.error(f"Invalid device index: {device}. Must be an integer.")
-            device = None
+    device_path = args.device
+    device_index = None
+    if device_path:
+        # Try to extract a numeric index from the end of the string,
+        # as cv2.VideoCapture prefers integer indices on Linux.
+        match = re.search(r'\d+$', device_path)
+        if match:
+            device_index = int(match.group(0))
+        else:
+            logging.warning(f"Could not extract a numeric index from device path: '{device_path}'. "
+                            "The application will use the default camera.")
 
-    app = CameraApp(device=device, resolution=RESOLUTION)
+    app = CameraApp(device=device_index, resolution=RESOLUTION)
     try:
         app.run()
     except KeyboardInterrupt:
