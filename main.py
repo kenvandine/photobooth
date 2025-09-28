@@ -241,30 +241,63 @@ class CameraApp(App):
     def get_supported_resolutions(self, camera_index):
         """
         Determines the supported resolutions for a given camera.
-
-        It checks a predefined list of common resolutions against the camera's
-        capabilities.
+        First, it tries to use the `v4l2-ctl` command for a reliable list.
+        If that fails, it falls back to an OpenCV-based trial-and-error method.
 
         Args:
             camera_index (int): The index of the camera to check.
 
         Returns:
-            list: A list of strings, where each string represents a
-                  supported resolution (e.g., "1920x1080").
+            list: A sorted list of strings representing supported resolutions.
         """
+        # Try to get resolutions using v4l2-ctl for reliability
+        device_path = f"/dev/video{camera_index}"
+        try:
+            # Check if v4l2-ctl is available on the system
+            subprocess.run(['which', 'v4l2-ctl'], check=True, capture_output=True)
+
+            result = subprocess.run(
+                ['v4l2-ctl', '-d', device_path, '--list-formats-ext'],
+                check=True, capture_output=True, text=True
+            )
+            output = result.stdout
+
+            resolutions = set()
+            # Regex to find lines like 'Size: Discrete 1280x720'
+            pattern = re.compile(r'\s+Size: Discrete\s+(\d+x\d+)')
+            for line in output.split('\n'):
+                match = pattern.search(line)
+                if match:
+                    resolutions.add(match.group(1))
+
+            if resolutions:
+                # Sort resolutions by area (width * height)
+                sorted_resolutions = sorted(
+                    list(resolutions),
+                    key=lambda r: int(r.split('x')[0]) * int(r.split('x')[1])
+                )
+                logging.info(f"Found resolutions for {device_path} via v4l2-ctl: {sorted_resolutions}")
+                return sorted_resolutions
+            else:
+                logging.warning(f"v4l2-ctl for {device_path} gave no output.")
+
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logging.warning(f"v4l2-ctl for {device_path} failed (is it installed?): {e}. "
+                            "Falling back to OpenCV's trial-and-error method.")
+
+        # Fallback to OpenCV's trial-and-error method
         supported_resolutions = []
-        cap = cv2.VideoCapture(camera_index)
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
-            logging.error(f"Could not open camera index {camera_index} to get resolutions.")
+            logging.error(f"Could not open camera index {camera_index} for fallback resolution check.")
             return []
 
-        # Test a list of standard resolutions
         for w, h in STANDARD_RESOLUTIONS:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            time.sleep(0.1)  # Give the driver time to settle
 
-            # Some drivers require reading a frame to apply the resolution
-            ret, frame = cap.read()
+            ret, _ = cap.read()
             if not ret:
                 logging.warning(f"Could not read frame at {w}x{h} for camera {camera_index}.")
                 continue
@@ -272,12 +305,13 @@ class CameraApp(App):
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            # If the camera accepts the resolution, add it to the list
             if actual_w == w and actual_h == h:
-                supported_resolutions.append(f"{w}x{h}")
+                res_str = f"{w}x{h}"
+                if res_str not in supported_resolutions:
+                    supported_resolutions.append(res_str)
 
         cap.release()
-        logging.info(f"Supported resolutions for camera {camera_index}: {supported_resolutions}")
+        logging.info(f"Supported resolutions for camera {camera_index} (OpenCV fallback): {supported_resolutions}")
         return supported_resolutions
 
     def build(self):
@@ -467,7 +501,7 @@ class CameraApp(App):
             self.resolution_selector.text = self.resolution
             w, h = map(int, self.resolution.split('x'))
 
-        self.capture = cv2.VideoCapture(selected_index)
+        self.capture = cv2.VideoCapture(selected_index, cv2.CAP_V4L2)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
 
