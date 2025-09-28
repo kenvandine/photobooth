@@ -404,7 +404,7 @@ class CameraApp(App):
             self.birthday_frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
             logging.info(f"Loaded birthday frame: {frame_path}")
 
-        self.hats = []
+        self.hats = [None]  # "no hat" option
         self.hat_files = sorted(glob.glob('assets/hats/*.png'))
         self.current_hat_index = 0
         if self.hat_files:
@@ -412,8 +412,8 @@ class CameraApp(App):
                 hat = cv2.imread(hat_file, cv2.IMREAD_UNCHANGED)
                 if hat is not None:
                     self.hats.append(hat)
-            if self.hats:
-                logging.info(f"Loaded {len(self.hats)} hats.")
+            if len(self.hats) > 1:
+                logging.info(f"Loaded {len(self.hats) - 1} hats.")
             else:
                 logging.warning("Found hat files, but failed to load them.")
         else:
@@ -488,7 +488,7 @@ class CameraApp(App):
             source='assets/hat-icon.png',
             size_hint=(None, None),
             size=(128, 128),
-            pos_hint={'center_x': 0.5, 'y': 0.05}
+            pos_hint={'right': 0.84, 'y': 0.05}
         )
         self.hat_switch_button.bind(on_press=self.change_hat)
         root.add_widget(self.hat_switch_button)
@@ -684,7 +684,10 @@ class CameraApp(App):
             return
 
         self.current_hat_index = (self.current_hat_index + 1) % len(self.hats)
-        logging.info(f"Changed hat to index: {self.current_hat_index}")
+        if self.hats[self.current_hat_index] is None:
+            logging.info("Changed to no hat.")
+        else:
+            logging.info(f"Changed hat to index: {self.current_hat_index}")
 
         # Clear the display queue to force a redraw with the new hat
         while not self.display_queue.empty():
@@ -732,12 +735,14 @@ class CameraApp(App):
 
         # Apply hats on faces
         if self.hats and not self.face_cascade.empty():
+            hat = self.hats[self.current_hat_index]
+            if hat is None:
+                return output_frame
+
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
 
             if len(faces) > 0:
-                hat = self.hats[self.current_hat_index]
-
                 for (x, y, w, h) in faces:
                     # Adjust hat size and position
                     hat_w = int(w * 1.5)
