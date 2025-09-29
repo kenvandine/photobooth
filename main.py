@@ -745,11 +745,11 @@ class CameraApp(App):
             if len(faces) > 0:
                 for (x, y, w, h) in faces:
                     # Adjust hat size and position
-                    hat_w = int(w * 1.5)
+                    hat_w = int(w * 1.1)
                     hat_h = int(hat.shape[0] * (hat_w / hat.shape[1]))
 
                     hat_x = x - int((hat_w - w) / 2)
-                    hat_y = y - int(hat_h * 0.75)  # Position hat above the face
+                    hat_y = y - int(hat_h * 0.85)  # Position hat above the face
 
                     # Resize hat
                     try:
