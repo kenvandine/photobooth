@@ -47,13 +47,25 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+
     <!-- Screensaver Prevention -->
-    <Video
-      id="screensaverBlocker"
-      translation="[0, 0]"
+    <Rectangle
+      id="activityIndicator"
       width="1"
       height="1"
-      visible="false"
-      loop="true" />
+      color="#FFFFFF"
+      opacity="0"
+      translation="[0,0]" />
+
+    <Animation
+      id="pinger"
+      duration="300"
+      repeat="true"
+      control="play">
+      <SimpleFieldInterpolator
+        key="[ 0.0, 0.5, 1.0 ]"
+        keyValue="[ 0.0, 1.0, 0.0 ]"
+        fieldToInterp="activityIndicator.opacity" />
+    </Animation>
   </children>
 </component>

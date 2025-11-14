@@ -13,11 +13,8 @@ sub init()
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
   ' -- Screensaver prevention
-  m.screensaverBlocker = m.top.findNode("screensaverBlocker")
-  videoContent = createObject("roSGNode", "ContentNode")
-  videoContent.url = "pkg:/images/blank.mp4"
-  m.screensaverBlocker.content = videoContent
-  m.screensaverBlocker.control = "play"
+  m.pinger = m.top.findNode("pinger")
+  m.pinger.control = "play"
 
   ' -- Initialize state
   m.photoIndex = 0
