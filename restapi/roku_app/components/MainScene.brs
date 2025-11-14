@@ -11,6 +11,13 @@ sub init()
   m.thumbnailStrip = m.top.findNode("thumbnailStrip")
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
+  m.screensaverTimer = m.top.findNode("screensaverTimer")
+
+  ' Observe timer fires
+  m.screensaverTimer.observeField("fire", "onScreensaverTimerFire")
+
+  ' Start the timer when showing photos
+  m.screensaverTimer.control = "start"
 
   ' -- Initialize state
   m.photoIndex = 0
@@ -81,6 +88,12 @@ sub onSlideshowTimerFired()
       updateDisplay()
     end if
   end if
+end sub
+
+sub onScreensaverTimerFire()
+  ' This function being called periodically prevents screensaver
+  ' You can optionally advance to next photo here
+  ' The timer firing counts as activity
 end sub
 
 sub onPhotosReceived()

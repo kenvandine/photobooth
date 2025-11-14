@@ -47,5 +47,6 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+    <Timer id="screensaverTimer" repeat="true" duration="60" />
   </children>
 </component>
