@@ -740,15 +740,6 @@ class CameraApp(App):
             logging.error(f"Could not find matching format for selection: {text}")
 
     def _apply_overlay(self, frame):
-        # Ensure the frame is in a dlib-compatible format (8-bit BGR)
-        if frame.dtype != np.uint8:
-            frame = frame.astype(np.uint8)
-
-        if len(frame.shape) == 2:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        elif frame.shape[2] == 4:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-
         output_frame = frame.copy()
 
         # Apply birthday frame first
@@ -772,10 +763,13 @@ class CameraApp(App):
                 return output_frame
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self.detector(gray, 0)
+
+            # dlib requires 8-bit gray image
+            gray_8bit = gray.astype(np.uint8)
+            faces = self.detector(gray_8bit, 0)
 
             for face in faces:
-                landmarks = self.predictor(gray, face)
+                landmarks = self.predictor(gray_8bit, face)
 
                 # Points for hat placement based on landmarks
                 p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
