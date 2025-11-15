@@ -29,6 +29,15 @@ sub init()
     m.slideshowTimer.ObserveField("fire", "onSlideshowTimerFired")
   end if
 
+  ' -- Setup screensaver prevention timer
+  ' Timer that fires every 30 seconds to signal activity and prevent screensaver
+  m.screensaverTimer = createObject("roSGNode", "Timer")
+  m.screensaverTimer.duration = 30
+  m.screensaverTimer.repeat = true
+  m.top.appendChild(m.screensaverTimer)
+  m.screensaverTimer.ObserveField("fire", "onScreensaverTimerFired")
+  m.screensaverTimer.control = "start"
+
   ' -- Add key event observer
   m.top.setFocus(true)
 
@@ -81,6 +90,12 @@ sub onSlideshowTimerFired()
       updateDisplay()
     end if
   end if
+end sub
+
+sub onScreensaverTimerFired()
+  ' This timer fires periodically to signal activity and prevent screensaver
+  ' Simply observing the timer fire event is enough to keep the app "active"
+  ' No additional action needed
 end sub
 
 sub onPhotosReceived()

@@ -11,6 +11,3 @@ initial_scene=MainScene
 
 # Set the resolution to HD
 ui_resolutions=hd
-
-# Disable the screensaver while the app is running
-screensaver_private=1
