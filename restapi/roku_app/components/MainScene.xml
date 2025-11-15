@@ -47,5 +47,8 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+    <Audio
+      id="slideshowAudio"
+      repeat="true" />
   </children>
 </component>

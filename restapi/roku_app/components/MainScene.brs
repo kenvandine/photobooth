@@ -11,6 +11,10 @@ sub init()
   m.thumbnailStrip = m.top.findNode("thumbnailStrip")
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
+  m.audioPlayer = m.top.findNode("slideshowAudio")
+  m.audioPlayer.content = {
+    url: "pkg:/sounds/audio.mp3"
+  }
 
   ' -- Initialize state
   m.photoIndex = 0
@@ -45,6 +49,7 @@ end sub
 sub onFirstShow()
     print "MainScene: onFirstShow() called." ' <-- ADD THIS
     m.photoFetcher.control = "run" ' Initial fetch
+    m.audioPlayer.control = "play"
 end sub
 
 ' *******************************************************************
@@ -156,8 +161,10 @@ sub togglePlayPause()
   if m.isPlaying
     m.playPauseIndicator.text = "Playing"
     m.slideshowTimer.control = "start"
+    m.audioPlayer.control = "play"
   else
     m.playPauseIndicator.text = "Paused"
     m.slideshowTimer.control = "stop"
+    m.audioPlayer.control = "pause"
   end if
 end sub
