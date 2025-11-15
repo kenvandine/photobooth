@@ -235,16 +235,10 @@ class CameraApp(App):
         self.latest_processed_frame = None          # For photo capture
         self.current_camera_name = None
         self.supported_formats = []
+        self.detector = None
+        self.predictor = None
 
         self._download_assets()
-        self.detector = dlib.get_frontal_face_detector()
-        try:
-            self.predictor = dlib.shape_predictor(SHAPE_PREDICTOR_PATH)
-        except RuntimeError as e:
-            logging.error(f"Failed to load shape predictor model: {e}. "
-                        "Please ensure the file exists and is not corrupted.")
-            # Optionally, handle the error gracefully, e.g., by disabling the hat feature
-            self.predictor = None
 
     def _download_assets(self):
         """Downloads required assets if they are not already present."""
@@ -757,9 +751,23 @@ class CameraApp(App):
             output_frame = cv2.add(background, foreground)
 
         # Apply hats on faces
-        if self.hats and self.predictor:
+        if self.hats:
+            # Lazy initialize dlib detector and predictor in the worker thread
+            if self.detector is None:
+                self.detector = dlib.get_frontal_face_detector()
+            if self.predictor is None:
+                try:
+                    self.predictor = dlib.shape_predictor(SHAPE_PREDICTOR_PATH)
+                except RuntimeError as e:
+                    logging.error(f"Failed to load shape predictor model: {e}. Disabling hats.")
+                    # By not setting self.hats to None, we will try again next frame
+                    return output_frame # Early exit if predictor fails to load
+
             hat = self.hats[self.current_hat_index]
             if hat is None:
+                return output_frame
+
+            if self.predictor is None: # check again in case it failed to load
                 return output_frame
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
