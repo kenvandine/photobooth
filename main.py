@@ -763,10 +763,15 @@ class CameraApp(App):
                 return output_frame
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self.detector(gray, 0)
+
+            # Create a pure, C-contiguous copy of the image data for dlib
+            pure_gray = np.empty(gray.shape, dtype=np.uint8)
+            np.copyto(pure_gray, gray)
+
+            faces = self.detector(pure_gray, 0)
 
             for face in faces:
-                landmarks = self.predictor(gray, face)
+                landmarks = self.predictor(pure_gray, face)
 
                 # Points for hat placement based on landmarks
                 p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
