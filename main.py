@@ -241,6 +241,11 @@ class CameraApp(App):
         self.frame_count = 0
         self.cached_faces = []
         self.face_detection_scale = 0.5  # Scale down image for faster detection
+        
+        # Landmark smoothing for stable hat placement
+        self.prev_landmarks = {}  # Store previous landmarks per face
+        self.prev_angles = {}  # Store previous angles per face
+        self.smoothing_factor = 0.5  # Lower = more smoothing (0-1)
 
         self._download_assets()
         self.detector = dlib.get_frontal_face_detector()
@@ -788,31 +793,61 @@ class CameraApp(App):
                 # Detect faces on smaller image
                 small_faces = self.detector(small_gray, 0)
                 
-                # Scale face coordinates back to original size
-                scale_factor = 1.0 / self.face_detection_scale
-                self.cached_faces = []
-                for face in small_faces:
-                    # Scale the face rectangle back to original size
-                    scaled_face = dlib.rectangle(
-                        int(face.left() * scale_factor),
-                        int(face.top() * scale_factor),
-                        int(face.right() * scale_factor),
-                        int(face.bottom() * scale_factor)
-                    )
-                    self.cached_faces.append(scaled_face)
+                # Only update cached faces if we found faces, otherwise keep previous
+                if small_faces:
+                    # Scale face coordinates back to original size
+                    scale_factor = 1.0 / self.face_detection_scale
+                    self.cached_faces = []
+                    for face in small_faces:
+                        # Scale the face rectangle back to original size
+                        scaled_face = dlib.rectangle(
+                            int(face.left() * scale_factor),
+                            int(face.top() * scale_factor),
+                            int(face.right() * scale_factor),
+                            int(face.bottom() * scale_factor)
+                        )
+                        self.cached_faces.append(scaled_face)
             
             # Use cached face detections
             faces = self.cached_faces
 
-            for face in faces:
+            for idx, face in enumerate(faces):
                 landmarks = self.predictor(gray, face)
 
                 # Points for hat placement based on landmarks
-                p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
-                p26 = np.array([landmarks.part(26).x, landmarks.part(26).y])
+                p17_raw = np.array([landmarks.part(17).x, landmarks.part(17).y], dtype=np.float32)
+                p26_raw = np.array([landmarks.part(26).x, landmarks.part(26).y], dtype=np.float32)
+                
+                # Apply temporal smoothing to reduce jitter
+                face_id = f"{idx}"  # Simple face ID based on index
+                if face_id in self.prev_landmarks:
+                    # Smooth landmarks using exponential moving average
+                    p17 = self.smoothing_factor * p17_raw + (1 - self.smoothing_factor) * self.prev_landmarks[face_id]['p17']
+                    p26 = self.smoothing_factor * p26_raw + (1 - self.smoothing_factor) * self.prev_landmarks[face_id]['p26']
+                else:
+                    p17 = p17_raw
+                    p26 = p26_raw
+                
+                # Store current landmarks for next frame
+                self.prev_landmarks[face_id] = {'p17': p17, 'p26': p26}
 
                 # Calculate angle and width for the hat
-                angle = np.degrees(np.arctan2(p26[1] - p17[1], p26[0] - p17[0]))
+                angle_raw = np.degrees(np.arctan2(p26[1] - p17[1], p26[0] - p17[0]))
+                
+                # Smooth angle to reduce rotation jitter
+                if face_id in self.prev_angles:
+                    # Handle angle wrap-around (e.g., -179 to 179)
+                    angle_diff = angle_raw - self.prev_angles[face_id]
+                    if angle_diff > 180:
+                        angle_diff -= 360
+                    elif angle_diff < -180:
+                        angle_diff += 360
+                    angle = self.prev_angles[face_id] + self.smoothing_factor * angle_diff
+                else:
+                    angle = angle_raw
+                
+                self.prev_angles[face_id] = angle
+                
                 hat_w = int(np.linalg.norm(p17 - p26) * 1.5)
                 if hat_w == 0: continue
 
