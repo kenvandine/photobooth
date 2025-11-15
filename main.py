@@ -740,6 +740,12 @@ class CameraApp(App):
             logging.error(f"Could not find matching format for selection: {text}")
 
     def _apply_overlay(self, frame):
+        # Ensure the frame is in BGR format for consistent processing
+        if len(frame.shape) == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
         output_frame = frame.copy()
 
         # Apply birthday frame first
