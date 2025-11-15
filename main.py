@@ -763,7 +763,7 @@ class CameraApp(App):
             output_frame = cv2.add(background, foreground)
 
         # Apply hats on faces
-        if self.hats and self.predictor:
+        if self.hats and self.predictor and self.detector:
             hat = self.hats[self.current_hat_index]
             if hat is None:
                 return output_frame
@@ -771,9 +771,17 @@ class CameraApp(App):
             # Convert to grayscale for dlib face detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            # Create a clean copy with proper memory layout for dlib
-            # dlib requires a C-contiguous uint8 array
-            gray = np.array(gray, dtype=np.uint8, order='C', copy=True)
+            # Ensure the grayscale image is properly formatted for dlib
+            # Force a clean copy with .copy() to break any memory views
+            gray = gray.copy()
+            
+            # Ensure proper dtype
+            if gray.dtype != np.uint8:
+                gray = gray.astype(np.uint8)
+            
+            # Ensure C-contiguous memory layout
+            if not gray.flags['C_CONTIGUOUS']:
+                gray = np.ascontiguousarray(gray)
             
             faces = self.detector(gray, 0)
 
