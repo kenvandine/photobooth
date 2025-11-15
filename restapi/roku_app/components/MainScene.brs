@@ -12,6 +12,13 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
+  ' -- Start the screensaver blocker video
+  m.screensaverBlocker = m.top.findNode("screensaverBlocker")
+  videoContent = createObject("roSGNode", "ContentNode")
+  videoContent.url = "pkg:/images/transparent.mp4"
+  m.screensaverBlocker.content = videoContent
+  m.screensaverBlocker.control = "play"
+
   ' -- Initialize state
   m.photoIndex = 0
   m.photos = []
