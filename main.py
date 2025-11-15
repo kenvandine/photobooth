@@ -235,7 +235,6 @@ class CameraApp(App):
         self.latest_processed_frame = None          # For photo capture
         self.current_camera_name = None
         self.supported_formats = []
-        self.dlib_warning_shown = False  # Track if Python 3.13 warning has been shown
 
         self._download_assets()
         self.detector = dlib.get_frontal_face_detector()
@@ -769,49 +768,13 @@ class CameraApp(App):
             if hat is None:
                 return output_frame
 
-            try:
-                # Python 3.13 compatibility workaround: Convert via PIL to create
-                # an array structure that dlib recognizes in Python 3.13
-                from PIL import Image
-                
-                # Convert BGR to RGB
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Convert to PIL Image and back to numpy array
-                # This creates a fresh array with standard memory layout
-                pil_image = Image.fromarray(rgb_frame)
-                img_array = np.array(pil_image, dtype=np.uint8)
-                
-                faces = self.detector(img_array, 0)
-            except RuntimeError as e:
-                if not self.dlib_warning_shown:
-                    self.dlib_warning_shown = True
-                    import sys
-                    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-                    logging.error("=" * 80)
-                    logging.error("DLIB COMPATIBILITY ERROR")
-                    logging.error("=" * 80)
-                    logging.error(f"dlib error: {e}")
-                    logging.error(f"Python version: {python_version}")
-                    logging.error(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
-                    if 'img_array' in locals():
-                        logging.error(f"Image array: shape={img_array.shape}, dtype={img_array.dtype}, C_CONTIGUOUS={img_array.flags['C_CONTIGUOUS']}")
-                    logging.error("")
-                    logging.error("This is a known compatibility issue with dlib 19.24.4 and Python 3.13+.")
-                    logging.error("The hat overlay feature is disabled until this is resolved.")
-                    logging.error("")
-                    logging.error("To fix this issue, try one of the following:")
-                    logging.error("1. Rebuild dlib from source for Python 3.13:")
-                    logging.error("   pip uninstall dlib")
-                    logging.error("   pip install --no-binary :all: dlib")
-                    logging.error("2. Use Python 3.11 or 3.12 instead of Python 3.13")
-                    logging.error("3. Wait for dlib to release a Python 3.13 compatible version")
-                    logging.error("=" * 80)
-                # Return without applying hat overlay if detection fails
-                return output_frame
+            # Convert to grayscale for dlib face detection
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            faces = self.detector(gray, 0)
 
             for face in faces:
-                landmarks = self.predictor(img_array, face)
+                landmarks = self.predictor(gray, face)
 
                 # Points for hat placement based on landmarks
                 p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
