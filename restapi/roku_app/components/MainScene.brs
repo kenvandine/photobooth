@@ -18,6 +18,19 @@ sub init()
   m.isPlaying = true
   m.apiUrl = "http://<YOUR_IP_ADDRESS>:5000/api" ' IMPORTANT: Replace <YOUR_IP_ADDRESS> with the actual IP of the server
 
+  ' -- Setup screensaver prevention using Animation node
+  ' A running animation prevents the screensaver from activating
+  m.screensaverAnimation = m.top.findNode("screensaverPrevention")
+  if m.screensaverAnimation <> invalid
+    ' Add a simple interpolator that does nothing visible but keeps animation active
+    interpolator = createObject("roSGNode", "Vector2DFieldInterpolator")
+    interpolator.key = [0, 1]
+    interpolator.keyValue = [[0, 0], [0, 0]]
+    interpolator.fieldToInterp = "mainPhoto.translation"
+    m.screensaverAnimation.appendChild(interpolator)
+    m.screensaverAnimation.control = "start"
+  end if
+
   ' -- Setup timers
   m.slideshowTimer = m.top.findNode("slideshowTimer")
   if m.slideshowTimer = invalid
