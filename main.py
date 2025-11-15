@@ -740,7 +740,10 @@ class CameraApp(App):
             logging.error(f"Could not find matching format for selection: {text}")
 
     def _apply_overlay(self, frame):
-        # Ensure the frame is in BGR format for consistent processing
+        # Ensure the frame is in a dlib-compatible format (8-bit BGR)
+        if frame.dtype != np.uint8:
+            frame = frame.astype(np.uint8)
+
         if len(frame.shape) == 2:
             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
         elif frame.shape[2] == 4:
