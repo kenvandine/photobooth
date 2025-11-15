@@ -3,6 +3,12 @@
 ' *******************************************************************
 
 sub Main()
+  ' -- Disable the screensaver while the app is running
+  appManager = CreateObject("roAppManager")
+  if appManager <> invalid
+    appManager.SetSystemSupport("screensaver", false)
+  end if
+
   ' -- Create the main scene
   screen = CreateObject("roSGScreen")
   port = CreateObject("roMessagePort")
