@@ -235,6 +235,12 @@ class CameraApp(App):
         self.latest_processed_frame = None          # For photo capture
         self.current_camera_name = None
         self.supported_formats = []
+        
+        # Face detection optimization: cache results to avoid detecting every frame
+        self.face_detection_interval = 3  # Detect faces every N frames
+        self.frame_count = 0
+        self.cached_faces = []
+        self.face_detection_scale = 0.5  # Scale down image for faster detection
 
         self._download_assets()
         self.detector = dlib.get_frontal_face_detector()
@@ -771,7 +777,32 @@ class CameraApp(App):
             # Convert to grayscale for dlib face detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            faces = self.detector(gray, 0)
+            # Performance optimization: Only detect faces every N frames
+            self.frame_count += 1
+            if self.frame_count % self.face_detection_interval == 0 or not self.cached_faces:
+                # Downscale for faster face detection
+                small_gray = cv2.resize(gray, None, fx=self.face_detection_scale, 
+                                       fy=self.face_detection_scale, 
+                                       interpolation=cv2.INTER_LINEAR)
+                
+                # Detect faces on smaller image
+                small_faces = self.detector(small_gray, 0)
+                
+                # Scale face coordinates back to original size
+                scale_factor = 1.0 / self.face_detection_scale
+                self.cached_faces = []
+                for face in small_faces:
+                    # Scale the face rectangle back to original size
+                    scaled_face = dlib.rectangle(
+                        int(face.left() * scale_factor),
+                        int(face.top() * scale_factor),
+                        int(face.right() * scale_factor),
+                        int(face.bottom() * scale_factor)
+                    )
+                    self.cached_faces.append(scaled_face)
+            
+            # Use cached face detections
+            faces = self.cached_faces
 
             for face in faces:
                 landmarks = self.predictor(gray, face)
