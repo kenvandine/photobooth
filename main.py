@@ -768,22 +768,30 @@ class CameraApp(App):
             if hat is None:
                 return output_frame
 
-            # Convert to grayscale for dlib face detection
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Ensure the grayscale image is properly formatted for dlib
-            # Force a clean copy with .copy() to break any memory views
-            gray = gray.copy()
-            
-            # Ensure proper dtype
-            if gray.dtype != np.uint8:
-                gray = gray.astype(np.uint8)
-            
-            # Ensure C-contiguous memory layout
-            if not gray.flags['C_CONTIGUOUS']:
-                gray = np.ascontiguousarray(gray)
-            
-            faces = self.detector(gray, 0)
+            try:
+                # Convert to grayscale for dlib face detection
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                # Ensure the grayscale image is properly formatted for dlib
+                # Force a clean copy with .copy() to break any memory views
+                gray = gray.copy()
+                
+                # Ensure proper dtype
+                if gray.dtype != np.uint8:
+                    gray = gray.astype(np.uint8)
+                
+                # Ensure C-contiguous memory layout
+                if not gray.flags['C_CONTIGUOUS']:
+                    gray = np.ascontiguousarray(gray)
+                
+                faces = self.detector(gray, 0)
+            except RuntimeError as e:
+                logging.error(f"dlib detector error: {e}")
+                logging.error(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
+                logging.error(f"Gray shape: {gray.shape}, dtype: {gray.dtype}, C_CONTIGUOUS: {gray.flags['C_CONTIGUOUS']}")
+                logging.error(f"Detector: {self.detector}")
+                # Return without applying hat overlay if detection fails
+                return output_frame
 
             for face in faces:
                 landmarks = self.predictor(gray, face)
