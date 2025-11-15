@@ -764,8 +764,8 @@ class CameraApp(App):
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            # dlib requires 8-bit gray image
-            gray_8bit = gray.astype(np.uint8)
+            # dlib requires a C-contiguous array of 8-bit gray image
+            gray_8bit = np.ascontiguousarray(gray, dtype=np.uint8)
             faces = self.detector(gray_8bit, 0)
 
             for face in faces:
