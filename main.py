@@ -769,32 +769,30 @@ class CameraApp(App):
                 return output_frame
 
             try:
-                # Convert to grayscale for dlib face detection
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                # Python 3.13 compatibility workaround: Convert via PIL to create
+                # an array structure that dlib recognizes in Python 3.13
+                from PIL import Image
                 
-                # Ensure the grayscale image is properly formatted for dlib
-                # Force a clean copy with .copy() to break any memory views
-                gray = gray.copy()
+                # Convert BGR to RGB
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
-                # Ensure proper dtype
-                if gray.dtype != np.uint8:
-                    gray = gray.astype(np.uint8)
+                # Convert to PIL Image and back to numpy array
+                # This creates a fresh array with standard memory layout
+                pil_image = Image.fromarray(rgb_frame)
+                img_array = np.array(pil_image, dtype=np.uint8)
                 
-                # Ensure C-contiguous memory layout
-                if not gray.flags['C_CONTIGUOUS']:
-                    gray = np.ascontiguousarray(gray)
-                
-                faces = self.detector(gray, 0)
+                faces = self.detector(img_array, 0)
             except RuntimeError as e:
                 logging.error(f"dlib detector error: {e}")
                 logging.error(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
-                logging.error(f"Gray shape: {gray.shape}, dtype: {gray.dtype}, C_CONTIGUOUS: {gray.flags['C_CONTIGUOUS']}")
+                if 'img_array' in locals():
+                    logging.error(f"Image array shape: {img_array.shape}, dtype: {img_array.dtype}, C_CONTIGUOUS: {img_array.flags['C_CONTIGUOUS']}")
                 logging.error(f"Detector: {self.detector}")
                 # Return without applying hat overlay if detection fails
                 return output_frame
 
             for face in faces:
-                landmarks = self.predictor(gray, face)
+                landmarks = self.predictor(img_array, face)
 
                 # Points for hat placement based on landmarks
                 p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
