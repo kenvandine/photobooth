@@ -768,16 +768,17 @@ class CameraApp(App):
             if hat is None:
                 return output_frame
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert BGR to RGB for dlib (dlib expects RGB format)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Create a pure, C-contiguous copy of the image data for dlib
-            pure_gray = np.empty(gray.shape, dtype=np.uint8)
-            np.copyto(pure_gray, gray)
+            # Ensure the array is C-contiguous for dlib
+            if not rgb_frame.flags['C_CONTIGUOUS']:
+                rgb_frame = np.ascontiguousarray(rgb_frame)
 
-            faces = self.detector(pure_gray, 0)
+            faces = self.detector(rgb_frame, 0)
 
             for face in faces:
-                landmarks = self.predictor(pure_gray, face)
+                landmarks = self.predictor(rgb_frame, face)
 
                 # Points for hat placement based on landmarks
                 p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
