@@ -48,7 +48,6 @@
       font="font:SmallBoldSystemFont"
       text="Playing" />
     <Audio
-      id="slideshowAudio"
-      repeat="true" />
+      id="slideshowAudio" />
   </children>
 </component>

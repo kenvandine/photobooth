@@ -12,9 +12,9 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
   m.audioPlayer = m.top.findNode("slideshowAudio")
-  m.audioPlayer.content = {
-    url: "pkg:/sounds/audio.mp3"
-  }
+  audioContent = createObject("roSGNode", "ContentNode")
+  audioContent.url = "pkg:/sounds/audio.mp3"
+  m.audioPlayer.content = audioContent
 
   ' -- Initialize state
   m.photoIndex = 0
@@ -42,6 +42,13 @@ sub init()
   m.photoFetcher.apiUrl = m.apiUrl
   print "MainScene: init() END." ' <-- ADD THIS
   m.top.ObserveField("focusedChild", "onFirstShow")
+  m.audioPlayer.observeField("state", "onAudioStateChange")
+end sub
+
+sub onAudioStateChange()
+  if m.audioPlayer.state = "finished"
+    m.audioPlayer.control = "play"
+  end if
 end sub
 
 ' onFirstShow() is called by the framework after the scene is displayed.
