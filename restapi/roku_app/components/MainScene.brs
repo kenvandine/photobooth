@@ -18,6 +18,19 @@ sub init()
   m.isPlaying = true
   m.apiUrl = "http://<YOUR_IP_ADDRESS>:5000/api" ' IMPORTANT: Replace <YOUR_IP_ADDRESS> with the actual IP of the server
 
+  ' -- Setup screensaver prevention using Animation node
+  ' A running animation prevents the screensaver from activating
+  m.screensaverAnimation = m.top.findNode("screensaverPrevention")
+  if m.screensaverAnimation <> invalid
+    ' Add a simple interpolator that does nothing visible but keeps animation active
+    interpolator = createObject("roSGNode", "Vector2DFieldInterpolator")
+    interpolator.key = [0, 1]
+    interpolator.keyValue = [[0, 0], [0, 0]]
+    interpolator.fieldToInterp = "mainPhoto.translation"
+    m.screensaverAnimation.appendChild(interpolator)
+    m.screensaverAnimation.control = "start"
+  end if
+
   ' -- Setup timers
   m.slideshowTimer = m.top.findNode("slideshowTimer")
   if m.slideshowTimer = invalid
@@ -28,15 +41,6 @@ sub init()
     m.top.appendChild(m.slideshowTimer) ' Add the timer to the scene
     m.slideshowTimer.ObserveField("fire", "onSlideshowTimerFired")
   end if
-
-  ' -- Setup screensaver prevention timer
-  ' Timer that fires every 30 seconds to signal activity and prevent screensaver
-  m.screensaverTimer = createObject("roSGNode", "Timer")
-  m.screensaverTimer.duration = 30
-  m.screensaverTimer.repeat = true
-  m.top.appendChild(m.screensaverTimer)
-  m.screensaverTimer.ObserveField("fire", "onScreensaverTimerFired")
-  m.screensaverTimer.control = "start"
 
   ' -- Add key event observer
   m.top.setFocus(true)
@@ -90,12 +94,6 @@ sub onSlideshowTimerFired()
       updateDisplay()
     end if
   end if
-end sub
-
-sub onScreensaverTimerFired()
-  ' This timer fires periodically to signal activity and prevent screensaver
-  ' Simply observing the timer fire event is enough to keep the app "active"
-  ' No additional action needed
 end sub
 
 sub onPhotosReceived()

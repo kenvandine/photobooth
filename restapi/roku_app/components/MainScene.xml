@@ -3,6 +3,13 @@
   <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
 
   <children>
+    <!-- Invisible Animation to prevent screensaver -->
+    <Animation
+      id="screensaverPrevention"
+      duration="10"
+      repeat="true"
+      easeFunction="linear" />
+
     <!-- Main Photo Display -->
     <Group translation="[40, 22]">
       <Rectangle
