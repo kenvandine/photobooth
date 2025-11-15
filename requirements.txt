@@ -12,3 +12,4 @@ sounddevice
 torch
 requests
 PyGObject
+dlib==19.24.4

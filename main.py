@@ -50,6 +50,7 @@ import threading
 import queue
 import numpy as np
 import time
+import dlib
 VOICE_ENABLED = os.environ.get('VOICE_ENABLED')
 if VOICE_ENABLED:
     from voice_listener import VoiceListener
@@ -59,6 +60,8 @@ logging.basicConfig(level=logging.INFO)
 DEFAULT_BANNER_PATH = 'assets/default_banner.png'
 PHOTOBOOTH_URL = os.environ.get('PHOTOBOOTH_URL')
 RESOLUTION = os.environ.get('RESOLUTION')
+SHAPE_PREDICTOR_URL = "https://huggingface.co/spaces/asdasdasdasd/Face-forgery-detection/resolve/542d3d4c897a619bccd82d797f37854839bad21f/shape_predictor_68_face_landmarks.dat"
+SHAPE_PREDICTOR_PATH = "assets/shape_predictor_68_face_landmarks.dat"
 # --- END CONFIGURATION ---
 
 # A list of common resolutions to test
@@ -233,9 +236,29 @@ class CameraApp(App):
         self.current_camera_name = None
         self.supported_formats = []
 
-        self.face_cascade = cv2.CascadeClassifier('assets/haarcascade_frontalface_default.xml')
-        if self.face_cascade.empty():
-            logging.error("Failed to load Haar Cascade for face detection.")
+        self._download_assets()
+        self.detector = dlib.get_frontal_face_detector()
+        try:
+            self.predictor = dlib.shape_predictor(SHAPE_PREDICTOR_PATH)
+        except RuntimeError as e:
+            logging.error(f"Failed to load shape predictor model: {e}. "
+                        "Please ensure the file exists and is not corrupted.")
+            # Optionally, handle the error gracefully, e.g., by disabling the hat feature
+            self.predictor = None
+
+    def _download_assets(self):
+        """Downloads required assets if they are not already present."""
+        if not os.path.exists(SHAPE_PREDICTOR_PATH):
+            logging.info(f"Downloading shape predictor model from {SHAPE_PREDICTOR_URL}...")
+            try:
+                response = requests.get(SHAPE_PREDICTOR_URL, stream=True)
+                response.raise_for_status()  # Raise an exception for bad status codes
+                with open(SHAPE_PREDICTOR_PATH, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logging.info(f"Shape predictor model saved to {SHAPE_PREDICTOR_PATH}")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Failed to download shape predictor model: {e}")
 
     def get_available_cameras(self):
         """
@@ -734,71 +757,87 @@ class CameraApp(App):
             output_frame = cv2.add(background, foreground)
 
         # Apply hats on faces
-        if self.hats and not self.face_cascade.empty():
+        if self.hats and self.predictor:
             hat = self.hats[self.current_hat_index]
             if hat is None:
                 return output_frame
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
+            faces = self.detector(gray, 0)
 
-            if len(faces) > 0:
-                for (x, y, w, h) in faces:
-                    # Adjust hat size and position
-                    hat_w = int(w * 1.1)
-                    hat_h = int(hat.shape[0] * (hat_w / hat.shape[1]))
+            for face in faces:
+                landmarks = self.predictor(gray, face)
 
-                    hat_x = x - int((hat_w - w) / 2)
-                    hat_y = y - int(hat_h * 0.85)  # Position hat above the face
+                # Points for hat placement based on landmarks
+                p17 = np.array([landmarks.part(17).x, landmarks.part(17).y])
+                p26 = np.array([landmarks.part(26).x, landmarks.part(26).y])
 
-                    # Resize hat
-                    try:
-                        resized_hat = cv2.resize(hat, (hat_w, hat_h))
-                    except cv2.error:
-                        continue  # Skip if resizing fails
+                # Calculate angle and width for the hat
+                angle = np.degrees(np.arctan2(p26[1] - p17[1], p26[0] - p17[0]))
+                hat_w = int(np.linalg.norm(p17 - p26) * 1.5)
+                if hat_w == 0: continue
 
-                    # Define ROI, handling boundaries
-                    frame_h, frame_w, _ = output_frame.shape
+                original_hat_h, original_hat_w = hat.shape[:2]
+                hat_h = int(original_hat_h * (hat_w / original_hat_w))
+                if hat_h == 0: continue
 
-                    # Top-left corner of where the hat will be placed
-                    roi_y1 = max(hat_y, 0)
-                    roi_x1 = max(hat_x, 0)
+                # Resize and rotate hat
+                try:
+                    resized_hat = cv2.resize(hat, (hat_w, hat_h))
+                    M = cv2.getRotationMatrix2D((hat_w / 2, hat_h / 2), angle, 1)
+                    # Adjust rotation matrix to avoid cropping
+                    cos = np.abs(M[0, 0])
+                    sin = np.abs(M[0, 1])
+                    new_w = int((hat_h * sin) + (hat_w * cos))
+                    new_h = int((hat_h * cos) + (hat_w * sin))
+                    M[0, 2] += (new_w / 2) - (hat_w / 2)
+                    M[1, 2] += (new_h / 2) - (hat_h / 2)
 
-                    # Bottom-right corner
-                    roi_y2 = min(hat_y + hat_h, frame_h)
-                    roi_x2 = min(hat_x + hat_w, frame_w)
+                    rotated_hat = cv2.warpAffine(resized_hat, M, (new_w, new_h))
+                except cv2.error:
+                    continue
 
-                    # Calculate the part of the hat that is visible
-                    hat_roi_y1 = max(0, -hat_y)
-                    hat_roi_x1 = max(0, -hat_x)
+                # Calculate hat position
+                mid_eyebrow = (p17 + p26) / 2
+                hat_center_x = int(mid_eyebrow[0])
+                hat_center_y = int(mid_eyebrow[1] - (hat_h * 0.75))
 
-                    hat_roi_y2 = hat_roi_y1 + (roi_y2 - roi_y1)
-                    hat_roi_x2 = hat_roi_x1 + (roi_x2 - roi_x1)
+                # Define ROI, handling boundaries
+                frame_h, frame_w, _ = output_frame.shape
+                hat_h_rot, hat_w_rot = rotated_hat.shape[:2]
 
-                    if (hat_roi_y2 - hat_roi_y1) <= 0 or (hat_roi_x2 - hat_roi_x1) <= 0:
-                        continue
+                hat_x = hat_center_x - hat_w_rot // 2
+                hat_y = hat_center_y - hat_h_rot // 2
 
-                    hat_part = resized_hat[hat_roi_y1:hat_roi_y2, hat_roi_x1:hat_roi_x2]
+                roi_y1 = max(hat_y, 0)
+                roi_x1 = max(hat_x, 0)
+                roi_y2 = min(hat_y + hat_h_rot, frame_h)
+                roi_x2 = min(hat_x + hat_w_rot, frame_w)
 
-                    # ROI on the main frame
-                    roi = output_frame[roi_y1:roi_y2, roi_x1:roi_x2]
+                if roi_y2 <= roi_y1 or roi_x2 <= roi_x1:
+                    continue
 
-                    if roi.shape[:2] != hat_part.shape[:2]:
-                        continue
+                # Crop the rotated hat and ROI to match sizes
+                hat_roi_y1 = max(0, -hat_y)
+                hat_roi_x1 = max(0, -hat_x)
+                hat_roi_y2 = hat_roi_y1 + (roi_y2 - roi_y1)
+                hat_roi_x2 = hat_roi_x1 + (roi_x2 - roi_x1)
 
-                    # Create mask and inverse mask
-                    hat_alpha = hat_part[:, :, 3]
-                    hat_rgb = hat_part[:, :, :3]
+                hat_part = rotated_hat[hat_roi_y1:hat_roi_y2, hat_roi_x1:hat_roi_x2]
+                roi = output_frame[roi_y1:roi_y2, roi_x1:roi_x2]
 
-                    # Black-out the area of hat in ROI
-                    roi_bg = cv2.bitwise_and(roi, roi, mask=cv2.bitwise_not(hat_alpha))
+                if roi.shape[:2] != hat_part.shape[:2]:
+                    continue
 
-                    # Take only region of hat from hat image.
-                    hat_fg = cv2.bitwise_and(hat_rgb, hat_rgb, mask=hat_alpha)
+                # Create mask and apply overlay
+                hat_alpha = hat_part[:, :, 3]
+                hat_rgb = hat_part[:, :, :3]
 
-                    # Put hat in ROI and modify the main image
-                    dst = cv2.add(roi_bg, hat_fg)
-                    output_frame[roi_y1:roi_y2, roi_x1:roi_x2] = dst
+                roi_bg = cv2.bitwise_and(roi, roi, mask=cv2.bitwise_not(hat_alpha))
+                hat_fg = cv2.bitwise_and(hat_rgb, hat_rgb, mask=hat_alpha)
+
+                dst = cv2.add(roi_bg, hat_fg)
+                output_frame[roi_y1:roi_y2, roi_x1:roi_x2] = dst
 
         return output_frame
 
