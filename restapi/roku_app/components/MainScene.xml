@@ -47,5 +47,13 @@
       horizAlign="right"
       font="font:SmallBoldSystemFont"
       text="Playing" />
+
+    <!-- Screensaver Blocker -->
+    <Video
+      id="screensaverBlocker"
+      translation="[-1, -1]"
+      width="1"
+      height="1"
+      loop="true" />
   </children>
 </component>
