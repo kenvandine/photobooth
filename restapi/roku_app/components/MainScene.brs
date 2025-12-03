@@ -12,6 +12,10 @@ sub init()
   m.thumbnailStrip.focusable = false
   m.playPauseIndicator = m.top.findNode("playPauseIndicator")
 
+  ' -- Screensaver prevention
+  m.pinger = m.top.findNode("pinger")
+  m.pinger.control = "play"
+
   ' -- Initialize state
   m.photoIndex = 0
   m.photos = []
