@@ -37,6 +37,13 @@ sub init()
   m.photoFetcher.ObserveField("response", "onPhotosReceived")
   m.photoFetcher.apiUrl = m.apiUrl
   print "MainScene: init() END." ' <-- ADD THIS
+  m.fadeAnimation = m.top.findNode("fadeAnimation")
+  m.fadeInterpolator = m.top.findNode("fadeInterpolator")
+  m.fadeAnimation.observeField("state", "onFadeStateChange")
+  m.mainPhoto.observeField("loadState", "onPhotoLoadStateChange")
+  m.mainPhoto.opacity = 1.0 ' Start fully visible
+  m.isFading = false
+  m.isFirstPhoto = true
   m.top.ObserveField("focusedChild", "onFirstShow")
 end sub
 
@@ -55,7 +62,7 @@ end sub
 ' It returns true if the key was handled, and false otherwise.
 function onKeyEvent(key as string, press as boolean) as boolean
   print "MainScene: onKeyEvent() called with key: "; key
-  if press ' Only handle key-down events
+  if press and not m.isFading ' Only handle key-down events if not fading
     if key = "right"
       navigate("next")
       return true
@@ -71,7 +78,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
 end function
 
 sub onSlideshowTimerFired()
-  if m.isPlaying and m.photos.count() > 0
+  if m.isPlaying and m.photos.count() > 1 and not m.isFading
     m.photoIndex = m.photoIndex + 1
     if m.photoIndex >= m.photos.count()
       ' Last photo was shown, refresh the list
@@ -90,14 +97,52 @@ sub onPhotosReceived()
         m.photos = response.data
         if m.photos.count() > 0
             m.photoIndex = 0 ' Reset to the first photo
+            m.isFirstPhoto = true ' Reset for new photo list
             updateThumbnails()
             updateDisplay()
-            m.slideshowTimer.control = "start"
+            if m.photos.count() > 1
+                m.slideshowTimer.control = "start"
+            end if
         end if
     else
         print "MainScene: Error receiving photos: "; response.message
     end if
 end sub
+
+sub onFadeStateChange()
+  if m.fadeAnimation.state = "stopped"
+    ' If fade out has just finished
+    if m.mainPhoto.opacity = 0.0
+      ' 2. Update the photo URI, which will trigger the onPhotoLoadStateChange observer
+      photoData = m.photos[m.photoIndex]
+      photoId = photoData.id
+      imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
+      m.mainPhoto.uri = imageUrl
+      m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
+      m.thumbnailStrip.jumpToItem = m.photoIndex
+    else ' Fade in finished
+      m.isFading = false
+    end if
+  end if
+end sub
+
+sub onPhotoLoadStateChange()
+    if m.mainPhoto.loadState = "loaded"
+        ' Only run the fade-in if a fade is in progress.
+        ' This prevents a blink on the first photo load.
+        if m.isFading
+            m.fadeInterpolator.keyValue = [0.0, 1.0]
+            m.fadeAnimation.control = "start"
+        end if
+    else if m.mainPhoto.loadState = "failed"
+        ' Handle load failure
+        if m.isFading
+            print "MainScene: Photo load failed."
+            m.isFading = false
+        end if
+    end if
+end sub
+
 
 ' *******************************************************************
 ' ** Core Logic
@@ -105,27 +150,35 @@ end sub
 
 sub updateDisplay()
   print "MainScene: updateDisplay() called." ' <-- ADD THIS
-  if m.photos.count() = 0 then return
+  if m.photos.count() = 0 or m.isFading then return
 
   ' -- Ensure index is within bounds
   if m.photoIndex < 0 or m.photoIndex >= m.photos.count()
     m.photoIndex = 0
   end if
 
-  photoData = m.photos[m.photoIndex]
-  photoId = photoData.id
-  imageUrl = m.apiUrl + "/photos/" + photoId + "/file"
-
-  m.mainPhoto.uri = imageUrl
-  m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
-  m.thumbnailStrip.jumpToItem = m.photoIndex
+  if m.isFirstPhoto
+    m.isFirstPhoto = false
+    ' Don't fade, just load the first photo directly
+    photoData = m.photos[m.photoIndex]
+    photoId = photoData.id
+    imageUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file"
+    m.mainPhoto.uri = imageUrl
+    m.photoCounter.text = "Photo " + (m.photoIndex + 1).toStr() + " of " + m.photos.count().toStr()
+    m.thumbnailStrip.jumpToItem = m.photoIndex
+  else
+    ' For all subsequent photos, do the fade transition
+    m.isFading = true
+    m.fadeInterpolator.keyValue = [1.0, 0.0] ' From opaque to transparent
+    m.fadeAnimation.control = "start"
+  end if
 end sub
 
 sub updateThumbnails()
   content = createObject("roSGNode", "ContentNode")
   for each photo in m.photos
     photoId = photo.id
-    thumbnailUrl = m.apiUrl + "/photos/" + photoId + "/file" ' Using full image for thumbnail
+    thumbnailUrl = m.apiUrl + "/photos/" + photoId.toStr() + "/file" ' Using full image for thumbnail
     item = content.createChild("ContentNode")
     item.addFields({ thumbnailUrl: thumbnailUrl })
   end for
@@ -133,7 +186,7 @@ sub updateThumbnails()
 end sub
 
 sub navigate(direction as string)
-  if m.photos.count() = 0 then return
+  if m.photos.count() <= 1 then return
 
   if direction = "next"
     m.photoIndex = (m.photoIndex + 1) mod m.photos.count()
