@@ -20,6 +20,27 @@
           loadDisplayMode="scaleToFit" />
     </Group>
 
+    <!-- Animations for the fade transition -->
+    <Animation
+      id="fadeOut"
+      duration="0.5"
+      easeFunction="linear">
+      <FloatFieldInterpolator
+        key="[0.0, 1.0]"
+        keyValue="[1.0, 0.0]"
+        fieldToInterp="mainPhoto.opacity" />
+    </Animation>
+
+    <Animation
+      id="fadeIn"
+      duration="0.5"
+      easeFunction="linear">
+      <FloatFieldInterpolator
+        key="[0.0, 1.0]"
+        keyValue="[0.0, 1.0]"
+        fieldToInterp="mainPhoto.opacity" />
+    </Animation>
+
     <!-- Photo Counter Label -->
     <Label
       id="photoCounter"
